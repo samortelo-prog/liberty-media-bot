@@ -114,6 +114,7 @@ export async function handleMessage(sock, message) {
 // ── Procesa el mensaje final acumulado ──
 async function processMessage(sock, message, jid, text) {
   const session = sessionManager.getOrCreate(jid);
+  console.log(`🔵 processMessage iniciado para ${jid}, started=${session.started}`);
 
   cancelFollowUps(jid);
 
@@ -121,6 +122,7 @@ async function processMessage(sock, message, jid, text) {
     // Primer mensaje del cliente → saludo fijo + notificar al dueño
     if (!session.started) {
       sessionManager.setStarted(jid);
+      console.log(`👋 Enviando saludo a ${jid}...`);
 
       const name = message.pushName ? message.pushName.split(' ')[0] : '';
       const greeting = name
@@ -128,9 +130,10 @@ async function processMessage(sock, message, jid, text) {
         : `¡Hola! Soy Samuel de Liberty Media, hacemos páginas web para negocios. ¿Qué tipo de negocio tienes?`;
 
       await humanDelay(sock, jid, greeting);
+      console.log(`📤 Enviando mensaje a ${jid}...`);
       await sock.sendMessage(jid, { text: greeting });
+      console.log(`✅ Saludo enviado a ${jid}`);
 
-      // Guardar el saludo en el historial para que la IA tenga contexto
       sessionManager.addMessage(jid, 'user', text);
       sessionManager.addMessage(jid, 'assistant', greeting);
 
@@ -140,12 +143,15 @@ async function processMessage(sock, message, jid, text) {
     }
 
     // Conversación normal
+    console.log(`🤖 Llamando a OpenAI para ${jid}...`);
     sessionManager.addMessage(jid, 'user', text);
     const response = await getAIResponse(session.history, text);
+    console.log(`✅ OpenAI respondió: "${response?.substring(0, 50)}"`);
     sessionManager.addMessage(jid, 'assistant', response);
 
     await humanDelay(sock, jid, response);
     await sock.sendMessage(jid, { text: response });
+    console.log(`📤 Respuesta enviada a ${jid}`);
 
     const callScheduled = await detectCallScheduled(text);
     if (callScheduled) {
@@ -157,7 +163,8 @@ async function processMessage(sock, message, jid, text) {
     }
 
   } catch (error) {
-    console.error(`❌ Error con ${jid}:`, error);
+    console.error(`❌ Error con ${jid}:`, error.message);
+    console.error(error.stack);
     await sock.sendMessage(jid, {
       text: 'Perdona, algo falló. ¿Me repites? :)',
     });

@@ -11,6 +11,25 @@ import { handleMessage, handleOwnerMessage } from './messageHandler.js';
 
 const logger = pino({ level: 'silent' });
 
+// Suprimir logs internos de Baileys que usan console.log directo
+const originalLog = console.log;
+console.log = (...args) => {
+  const msg = args[0]?.toString() || '';
+  if (
+    msg.includes('Closing session') ||
+    msg.includes('Closing stale') ||
+    msg.includes('SessionEntry') ||
+    msg.includes('remoteIdentityKey') ||
+    msg.includes('registrationId') ||
+    msg.includes('currentRatchet') ||
+    msg.includes('indexInfo') ||
+    msg.includes('baseKey') ||
+    msg.includes('_chains') ||
+    msg.includes('rootKey')
+  ) return;
+  originalLog(...args);
+};
+
 async function startBot() {
   console.log('🚀 Iniciando Liberty Media WhatsApp Bot...');
 

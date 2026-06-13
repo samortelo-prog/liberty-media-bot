@@ -14,15 +14,20 @@ import { RESUME_KEYWORDS, OWNER_PHONE } from './config.js';
 // Pausa el bot automáticamente en ese chat
 export async function handleOwnerMessage(sock, message) {
   const jid = message.key.remoteJid;
-
-  // Ignorar si es el chat consigo mismo o notificaciones internas
-  if (!jid || jid === `${OWNER_PHONE}@s.whatsapp.net`) return;
+  if (!jid) return;
 
   const text =
     message.message?.conversation ||
     message.message?.extendedTextMessage?.text || '';
 
-  // Si el dueño escribe "bot" en el chat, reactiva el bot en ese chat
+  // Ignorar mensajes enviados a sí mismo o al dueño (notificaciones del bot)
+  const ownerJid = `${OWNER_PHONE}@s.whatsapp.net`;
+  if (jid === ownerJid) return;
+
+  // Ignorar si el texto es una notificación automática del bot
+  if (text.includes('🔔 Nuevo cliente') || text.includes('🤖 Bot reactivado')) return;
+
+  // Si el dueño escribe "bot" en el chat, reactiva el bot
   if (RESUME_KEYWORDS.some((kw) => text.toLowerCase().includes(kw))) {
     clearBuffer(jid);
     sessionManager.setMode(jid, 'bot');
@@ -30,7 +35,7 @@ export async function handleOwnerMessage(sock, message) {
     return;
   }
 
-  // Cualquier otro mensaje del dueño → pausar ese chat
+  // Cualquier otro mensaje del dueño en chat de cliente → pausar
   const session = sessionManager.getOrCreate(jid);
   if (session.mode === 'bot') {
     clearBuffer(jid);
@@ -109,6 +114,7 @@ export async function handleMessage(sock, message) {
 // ── Procesa el mensaje final acumulado ──
 async function processMessage(sock, message, jid, text) {
   const session = sessionManager.getOrCreate(jid);
+  console.log(`🔵 processMessage iniciado para ${jid}, started=${session.started}`);
 
   cancelFollowUps(jid);
 
@@ -116,6 +122,7 @@ async function processMessage(sock, message, jid, text) {
     // Primer mensaje del cliente → saludo fijo + notificar al dueño
     if (!session.started) {
       sessionManager.setStarted(jid);
+      console.log(`👋 Enviando saludo a ${jid}...`);
 
       const name = message.pushName ? message.pushName.split(' ')[0] : '';
       const greeting = name
@@ -123,36 +130,45 @@ async function processMessage(sock, message, jid, text) {
         : `¡Hola! Soy Samuel de Liberty Media, hacemos páginas web para negocios. ¿Qué tipo de negocio tienes?`;
 
       await humanDelay(sock, jid, greeting);
+      console.log(`📤 Enviando mensaje a ${jid}...`);
       await sock.sendMessage(jid, { text: greeting });
+      console.log(`✅ Saludo enviado a ${jid}`);
 
-      // Guardar el saludo en el historial para que la IA tenga contexto
       sessionManager.addMessage(jid, 'user', text);
       sessionManager.addMessage(jid, 'assistant', greeting);
 
       notifyOwner(sock, jid, message.pushName, text);
-      startFollowUps(sock, jid);
+      startFollowUps(sock, jid, session.history);
       return;
     }
 
     // Conversación normal
+    console.log(`🤖 Llamando a OpenAI para ${jid}...`);
     sessionManager.addMessage(jid, 'user', text);
     const response = await getAIResponse(session.history, text);
+    console.log(`✅ OpenAI respondió: "${response?.substring(0, 50)}"`);
     sessionManager.addMessage(jid, 'assistant', response);
 
     await humanDelay(sock, jid, response);
     await sock.sendMessage(jid, { text: response });
+    console.log(`📤 Respuesta enviada a ${jid}`);
 
-    const callScheduled = await detectCallScheduled(text);
-    if (callScheduled) {
+    // Detectar llamada agendada en el mensaje del cliente O en la respuesta de Samuel
+    const callInUserMsg = await detectCallScheduled(text);
+    const callInBotResponse = response.toLowerCase().includes('en un momento te llamamos') ||
+                              response.toLowerCase().includes('te llamamos');
+
+    if (callInUserMsg || callInBotResponse) {
       sessionManager.setMode(jid, 'call_scheduled');
       cancelFollowUps(jid);
       console.log(`📞 Llamada agendada con ${jid}`);
     } else {
-      startFollowUps(sock, jid);
+      startFollowUps(sock, jid, session.history);
     }
 
   } catch (error) {
-    console.error(`❌ Error con ${jid}:`, error);
+    console.error(`❌ Error con ${jid}:`, error.message);
+    console.error(error.stack);
     await sock.sendMessage(jid, {
       text: 'Perdona, algo falló. ¿Me repites? :)',
     });

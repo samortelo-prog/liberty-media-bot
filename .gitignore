@@ -3,5 +3,3 @@ auth_info/
 .env
 *.log
 .DS_Store
-
-auth_info/

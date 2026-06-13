@@ -3,12 +3,8 @@
 // ==========================================
 
 import 'dotenv/config';
-import makeWASocket, {
-  DisconnectReason,
-  useMultiFileAuthState,
-  fetchLatestBaileysVersion,
-  makeCacheableSignalKeyStore,
-} from '@whiskeysockets/baileys';
+import baileys from '@whiskeysockets/baileys';
+const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = baileys;
 import qrcode from 'qrcode-terminal';
 import pino from 'pino';
 import { handleMessage, handleOwnerMessage } from './messageHandler.js';

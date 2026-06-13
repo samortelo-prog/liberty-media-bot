@@ -14,15 +14,20 @@ import { RESUME_KEYWORDS, OWNER_PHONE } from './config.js';
 // Pausa el bot automáticamente en ese chat
 export async function handleOwnerMessage(sock, message) {
   const jid = message.key.remoteJid;
-
-  // Ignorar si es el chat consigo mismo o notificaciones internas
-  if (!jid || jid === `${OWNER_PHONE}@s.whatsapp.net`) return;
+  if (!jid) return;
 
   const text =
     message.message?.conversation ||
     message.message?.extendedTextMessage?.text || '';
 
-  // Si el dueño escribe "bot" en el chat, reactiva el bot en ese chat
+  // Ignorar mensajes enviados a sí mismo o al dueño (notificaciones del bot)
+  const ownerJid = `${OWNER_PHONE}@s.whatsapp.net`;
+  if (jid === ownerJid) return;
+
+  // Ignorar si el texto es una notificación automática del bot
+  if (text.includes('🔔 Nuevo cliente') || text.includes('🤖 Bot reactivado')) return;
+
+  // Si el dueño escribe "bot" en el chat, reactiva el bot
   if (RESUME_KEYWORDS.some((kw) => text.toLowerCase().includes(kw))) {
     clearBuffer(jid);
     sessionManager.setMode(jid, 'bot');
@@ -30,7 +35,7 @@ export async function handleOwnerMessage(sock, message) {
     return;
   }
 
-  // Cualquier otro mensaje del dueño → pausar ese chat
+  // Cualquier otro mensaje del dueño en chat de cliente → pausar
   const session = sessionManager.getOrCreate(jid);
   if (session.mode === 'bot') {
     clearBuffer(jid);

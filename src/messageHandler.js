@@ -124,10 +124,7 @@ async function processMessage(sock, message, jid, text) {
       sessionManager.setStarted(jid);
       console.log(`👋 Enviando saludo a ${jid}...`);
 
-      const name = message.pushName ? message.pushName.split(' ')[0] : '';
-      const greeting = name
-        ? `¡Hola ${name}! Soy Samuel de Liberty Media, hacemos páginas web para negocios. ¿Qué tipo de negocio tienes?`
-        : `¡Hola! Soy Samuel de Liberty Media, hacemos páginas web para negocios. ¿Qué tipo de negocio tienes?`;
+      const greeting = `¡Hola! Soy Samuel de Liberty Media, hacemos páginas web para negocios. ¿Qué tipo de negocio tienes?`;
 
       await humanDelay(sock, jid, greeting);
       console.log(`📤 Enviando mensaje a ${jid}...`);

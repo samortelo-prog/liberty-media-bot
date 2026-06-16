@@ -1,40 +1,81 @@
 // ==========================================
-// LIBERTY MEDIA - GESTOR DE SESIONES
+// LIBERTY MEDIA - GESTOR DE SESIONES (SQLite)
+// Persiste entre reinicios del servidor
 // ==========================================
 
-const SESSION_TTL = 60 * 60 * 1000; // 1 hora de inactividad
+import Database from 'better-sqlite3';
+import { mkdirSync } from 'fs';
+
+// Base de datos en el volumen de Railway (mismo lugar que auth_info)
+const DB_PATH = process.env.NODE_ENV === 'production'
+  ? '/app/auth_info/sessions.db'
+  : './sessions.db';
+
+// Asegurar que el directorio existe
+try { mkdirSync('/app/auth_info', { recursive: true }); } catch (_) {}
+
+const db = new Database(DB_PATH);
+
+// Crear tablas si no existen
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sessions (
+    jid TEXT PRIMARY KEY,
+    started INTEGER DEFAULT 0,
+    mode TEXT DEFAULT 'bot',
+    history TEXT DEFAULT '[]',
+    last_activity INTEGER DEFAULT 0
+  );
+`);
+
+console.log(`💾 Base de datos iniciada: ${DB_PATH}`);
+
+// Statements preparados para mejor rendimiento
+const stmts = {
+  get:    db.prepare(`SELECT * FROM sessions WHERE jid = ?`),
+  insert: db.prepare(`INSERT OR IGNORE INTO sessions (jid, last_activity) VALUES (?, ?)`),
+  update: db.prepare(`UPDATE sessions SET started=?, mode=?, history=?, last_activity=? WHERE jid=?`),
+  delete: db.prepare(`DELETE FROM sessions WHERE last_activity < ?`),
+};
 
 class SessionManager {
-  constructor() {
-    this.sessions = new Map();
-    setInterval(() => this.cleanup(), 15 * 60 * 1000);
-  }
-
   getOrCreate(jid) {
-    if (!this.sessions.has(jid)) {
-      this.sessions.set(jid, this.createSession());
-      console.log(`📋 Nueva sesión: ${jid}`);
-    }
-    const session = this.sessions.get(jid);
-    session.lastActivity = Date.now();
+    stmts.insert.run(jid, Date.now());
+    const row = stmts.get.get(jid);
+    const session = this._rowToSession(row);
+    this._save(jid, session);
     return session;
   }
 
-  createSession() {
+  _rowToSession(row) {
     return {
-      started: false,
-      mode: 'bot',       // 'bot' | 'paused' | 'call_scheduled'
-      history: [],
-      lastActivity: Date.now(),
+      started:      row.started === 1,
+      mode:         row.mode || 'bot',
+      history:      JSON.parse(row.history || '[]'),
+      lastActivity: row.last_activity || Date.now(),
     };
   }
 
+  _save(jid, session) {
+    stmts.update.run(
+      session.started ? 1 : 0,
+      session.mode,
+      JSON.stringify(session.history),
+      Date.now(),
+      jid
+    );
+  }
+
   setStarted(jid) {
-    this.getOrCreate(jid).started = true;
+    const session = this.getOrCreate(jid);
+    session.started = true;
+    this._save(jid, session);
   }
 
   setMode(jid, mode) {
-    this.getOrCreate(jid).mode = mode;
+    const session = this.getOrCreate(jid);
+    session.mode = mode;
+    this._save(jid, session);
+    console.log(`💾 Modo guardado: ${jid} → ${mode}`);
   }
 
   getMode(jid) {
@@ -47,6 +88,7 @@ class SessionManager {
     if (session.history.length > 20) {
       session.history = session.history.slice(-20);
     }
+    this._save(jid, session);
   }
 
   getHistory(jid) {
@@ -54,16 +96,15 @@ class SessionManager {
   }
 
   cleanup() {
-    const now = Date.now();
-    let cleaned = 0;
-    for (const [jid, session] of this.sessions.entries()) {
-      if (now - session.lastActivity > SESSION_TTL) {
-        this.sessions.delete(jid);
-        cleaned++;
-      }
+    const cutoff = Date.now() - (7 * 24 * 60 * 60 * 1000); // 7 días
+    const result = stmts.delete.run(cutoff);
+    if (result.changes > 0) {
+      console.log(`🧹 ${result.changes} sesiones antiguas eliminadas`);
     }
-    if (cleaned > 0) console.log(`🧹 ${cleaned} sesiones limpiadas`);
   }
 }
 
 export const sessionManager = new SessionManager();
+
+// Limpiar sesiones viejas cada 24 horas
+setInterval(() => sessionManager.cleanup(), 24 * 60 * 60 * 1000);

@@ -16,7 +16,7 @@ const FOLLOW_UPS = [
       'Me comenta si está disponible el día de hoy para poder hablar un poco más acerca de tu proyecto.',
   },
   {
-    delay: 30 * 60 * 1000, // 30 minutos
+    delay: 90 * 60 * 1000, // 1 hora y media
     message:
       'Hola, tu web quedó pendiente, me comentas si aún estás interesado y si podría llamarte el día de hoy!',
   },

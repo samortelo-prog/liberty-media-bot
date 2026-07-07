@@ -2,7 +2,7 @@
 // LIBERTY MEDIA - CONFIGURACIÓN
 // ==========================================
 
-export const OWNER_PHONE = '51991694322';
+export const OWNER_PHONE = '51944120858';
 
 export const STOP_KEYWORDS = ['.'];
 export const RESUME_KEYWORDS = ['bot', 'auto', 'automatico', 'automático'];

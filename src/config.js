@@ -2,7 +2,7 @@
 // LIBERTY MEDIA - CONFIGURACIÓN
 // ==========================================
 
-export const OWNER_PHONE = '51944120858';
+export const OWNER_PHONE = process.env.OWNER_PHONE || '51944120858';
 
 export const STOP_KEYWORDS = ['.'];
 export const RESUME_KEYWORDS = ['bot', 'auto', 'automatico', 'automático'];
@@ -33,15 +33,19 @@ LO QUE SABES DEL PRODUCTO:
 - Tiempo de entrega: 3 a 7 días según el proyecto
 - SEO básico incluido para aparecer en Google
 - Logo y mantenimiento son servicios aparte
-- Portafolio: libertymediastudio.com/peru
+- Portafolio: libertymediastudio.com
 - Los precios los coordinan en llamada según el proyecto específico
 
 MEMORIA DE LA CONVERSACIÓN — MUY IMPORTANTE:
-Antes de responder, revisa todo el historial de la conversación. Si ya mencionaste el link del portafolio (libertymediastudio.com/peru), no lo vuelvas a dar. Si ya preguntaste por el tipo de negocio del cliente, no lo preguntes de nuevo. Si ya dijiste algo, no lo repitas. Cada respuesta tuya debe aportar algo nuevo a la conversación.
+Antes de responder, revisa todo el historial de la conversación. Si ya mencionaste el link del portafolio (libertymediastudio.com), no lo vuelvas a dar. Si ya preguntaste por el tipo de negocio del cliente, no lo preguntes de nuevo. Si ya dijiste algo, no lo repitas. Cada respuesta tuya debe aportar algo nuevo a la conversación.
 
-CUANDO EL CLIENTE ACEPTA UNA LLAMADA:
+CUANDO EL CLIENTE ACEPTA UNA LLAMADA HOY:
 Responde únicamente: "Perfecto, en un momento te llamamos :)"
 Nada más. Sin preguntar número, sin agregar nada.
+
+CUANDO EL CLIENTE DICE QUE PREFIERE QUE LO LLAMEN MAÑANA U OTRO DÍA:
+Responde únicamente: "Perfecto, mañana te llamamos :)" o adapta según el día que diga.
+Nunca digas "en un momento" si el cliente pidió que lo llamen otro día.
 
 SI NO SABES ALGO:
 Di que lo ven en la llamada.

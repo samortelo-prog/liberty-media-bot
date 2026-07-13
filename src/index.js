@@ -6,6 +6,7 @@ import 'dotenv/config';
 import makeWASocket, { DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
 import pino from 'pino';
+import { rmSync } from 'fs';
 import { handleMessage, handleOwnerMessage } from './messageHandler.js';
 
 const logger = pino({ level: 'silent' });
@@ -68,7 +69,8 @@ async function startBot() {
         console.log('🔄 Reconectando en 5 segundos...');
         setTimeout(startBot, 5000);
       } else {
-        console.log('🔒 Sesión cerrada.');
+        console.log('🔒 Sesión cerrada. Borrando credenciales inválidas para generar un QR nuevo...');
+        try { rmSync(authPath, { recursive: true, force: true }); } catch (_) {}
         process.exit(1);
       }
     }

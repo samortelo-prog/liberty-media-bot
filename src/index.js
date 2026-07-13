@@ -6,9 +6,21 @@ import 'dotenv/config';
 import makeWASocket, { DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
 import pino from 'pino';
-import { rmSync, existsSync, mkdirSync, writeFileSync } from 'fs';
+import { rmSync, existsSync, mkdirSync, writeFileSync, readdirSync } from 'fs';
 import { execSync } from 'child_process';
 import { handleMessage, handleOwnerMessage } from './messageHandler.js';
+
+// auth_info puede ser el punto de montaje de un volumen (Railway): se puede
+// vaciar su contenido, pero no borrar la carpeta en sí (da EBUSY).
+function clearAuthDirContents(authPath) {
+  if (!existsSync(authPath)) {
+    mkdirSync(authPath, { recursive: true });
+    return;
+  }
+  for (const entry of readdirSync(authPath)) {
+    rmSync(`${authPath}/${entry}`, { recursive: true, force: true });
+  }
+}
 
 // ── Restaurar sesión ya vinculada desde una variable de entorno (bootstrap) ──
 // Útil cuando el proveedor (ej. Railway) bloquea el handshake inicial del QR
@@ -20,8 +32,7 @@ function bootstrapAuthFromEnv(authPath) {
 
   console.log('📦 Restaurando sesión desde AUTH_INFO_B64 (sobreescribiendo lo que haya en el volumen)...');
   try {
-    rmSync(authPath, { recursive: true, force: true }); // limpiar cualquier sesión vieja/inválida
-    mkdirSync(authPath, { recursive: true });
+    clearAuthDirContents(authPath); // limpiar cualquier sesión vieja/inválida
     const tarPath = '/tmp/auth_info_bootstrap.tar.gz';
     writeFileSync(tarPath, Buffer.from(b64, 'base64'));
     execSync(`tar -xzf ${tarPath} -C ${process.cwd()}`);
@@ -94,7 +105,7 @@ async function startBot() {
         setTimeout(startBot, 5000);
       } else {
         console.log('🔒 Sesión cerrada. Borrando credenciales inválidas para generar un QR nuevo...');
-        try { rmSync(authPath, { recursive: true, force: true }); } catch (_) {}
+        try { clearAuthDirContents(authPath); } catch (_) {}
         process.exit(1);
       }
     }

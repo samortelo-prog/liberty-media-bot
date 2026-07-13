@@ -6,8 +6,30 @@ import 'dotenv/config';
 import makeWASocket, { DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
 import pino from 'pino';
-import { rmSync } from 'fs';
+import { rmSync, existsSync, mkdirSync, writeFileSync } from 'fs';
+import { execSync } from 'child_process';
 import { handleMessage, handleOwnerMessage } from './messageHandler.js';
+
+// ── Restaurar sesión ya vinculada desde una variable de entorno (bootstrap) ──
+// Útil cuando el proveedor (ej. Railway) bloquea el handshake inicial del QR
+// por venir de una IP de datacenter: se vincula una vez en una red normal y
+// se sube esa sesión ya autenticada como AUTH_INFO_B64 (tar.gz en base64).
+function bootstrapAuthFromEnv(authPath) {
+  const b64 = process.env.AUTH_INFO_B64;
+  if (!b64) return;
+  if (existsSync(`${authPath}/creds.json`)) return; // ya hay una sesión, no sobreescribir
+
+  console.log('📦 Restaurando sesión desde AUTH_INFO_B64...');
+  try {
+    mkdirSync(authPath, { recursive: true });
+    const tarPath = '/tmp/auth_info_bootstrap.tar.gz';
+    writeFileSync(tarPath, Buffer.from(b64, 'base64'));
+    execSync(`tar -xzf ${tarPath} -C ${process.cwd()}`);
+    console.log('✅ Sesión restaurada desde AUTH_INFO_B64.');
+  } catch (err) {
+    console.error('❌ Error restaurando sesión desde AUTH_INFO_B64:', err.message);
+  }
+}
 
 const logger = pino({ level: 'silent' });
 
@@ -35,6 +57,8 @@ async function startBot() {
 
   const authPath = './auth_info';
   console.log(`📁 Auth path: ${process.cwd()}/${authPath}`);
+
+  bootstrapAuthFromEnv(authPath);
 
   const { state, saveCreds } = await useMultiFileAuthState(authPath);
   const { version } = await fetchLatestBaileysVersion();

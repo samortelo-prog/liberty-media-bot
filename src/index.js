@@ -12,12 +12,15 @@ import { handleMessage, handleOwnerMessage } from './messageHandler.js';
 
 // auth_info puede ser el punto de montaje de un volumen (Railway): se puede
 // vaciar su contenido, pero no borrar la carpeta en sí (da EBUSY).
+// sessions.db vive en la misma carpeta pero ya está abierta por better-sqlite3,
+// así que nunca debe borrarse aquí (rompería la conexión con "readonly database").
 function clearAuthDirContents(authPath) {
   if (!existsSync(authPath)) {
     mkdirSync(authPath, { recursive: true });
     return;
   }
   for (const entry of readdirSync(authPath)) {
+    if (entry === 'sessions.db') continue;
     rmSync(`${authPath}/${entry}`, { recursive: true, force: true });
   }
 }

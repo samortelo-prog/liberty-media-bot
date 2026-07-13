@@ -17,10 +17,10 @@ import { handleMessage, handleOwnerMessage } from './messageHandler.js';
 function bootstrapAuthFromEnv(authPath) {
   const b64 = process.env.AUTH_INFO_B64;
   if (!b64) return;
-  if (existsSync(`${authPath}/creds.json`)) return; // ya hay una sesión, no sobreescribir
 
-  console.log('📦 Restaurando sesión desde AUTH_INFO_B64...');
+  console.log('📦 Restaurando sesión desde AUTH_INFO_B64 (sobreescribiendo lo que haya en el volumen)...');
   try {
+    rmSync(authPath, { recursive: true, force: true }); // limpiar cualquier sesión vieja/inválida
     mkdirSync(authPath, { recursive: true });
     const tarPath = '/tmp/auth_info_bootstrap.tar.gz';
     writeFileSync(tarPath, Buffer.from(b64, 'base64'));

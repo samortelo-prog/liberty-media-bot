@@ -8,7 +8,7 @@ const FOLLOW_UPS = [
   {
     delay: 5 * 60 * 1000, // 5 minutos
     message:
-      'Puede revisar algunos trabajos y reseñas en nuestra web para que pueda ver el nivel que manejamos! libertymediastudio.com/peru',
+      'Puede revisar algunos trabajos y reseñas en nuestra web para que pueda ver el nivel que manejamos! libertymediastudio.com',
   },
   {
     delay: 15 * 60 * 1000, // 15 minutos

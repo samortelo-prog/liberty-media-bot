@@ -2,6 +2,6 @@
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "node src/index.js"
+startCommand = "echo 'Bot pausado temporalmente, no tocar' && sleep infinity"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10

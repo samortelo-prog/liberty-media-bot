@@ -4,15 +4,19 @@
 // ==========================================
 
 import Database from 'better-sqlite3';
-import { mkdirSync } from 'fs';
+import { mkdirSync, existsSync } from 'fs';
+import { dirname } from 'path';
 
 // Base de datos en el volumen de Railway (mismo lugar que auth_info)
-const DB_PATH = process.env.NODE_ENV === 'production'
+// Solo usamos la ruta de Railway (/app/...) si realmente existe ese volumen;
+// si no (por ejemplo corriendo en local con NODE_ENV=production en .env),
+// usamos una ruta local para evitar el error "directory does not exist".
+const DB_PATH = (process.env.NODE_ENV === 'production' && existsSync('/app'))
   ? '/app/auth_info/sessions.db'
   : './sessions.db';
 
 // Asegurar que el directorio existe
-try { mkdirSync('/app/auth_info', { recursive: true }); } catch (_) {}
+try { mkdirSync(dirname(DB_PATH), { recursive: true }); } catch (_) {}
 
 const db = new Database(DB_PATH);
 

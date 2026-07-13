@@ -3,8 +3,7 @@
 // ==========================================
 
 import 'dotenv/config';
-import baileys from '@whiskeysockets/baileys';
-const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = baileys;
+import makeWASocket, { DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
 import pino from 'pino';
 import { handleMessage, handleOwnerMessage } from './messageHandler.js';
@@ -46,7 +45,6 @@ async function startBot() {
       creds: state.creds,
       keys: makeCacheableSignalKeyStore(state.keys, logger),
     },
-    printQRInTerminal: true,
     browser: ['Liberty Media Bot', 'Chrome', '1.0.0'],
     syncFullHistory: false,
     markOnlineOnConnect: true,

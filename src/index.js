@@ -33,12 +33,19 @@ function bootstrapAuthFromEnv(authPath) {
   const b64 = process.env.AUTH_INFO_B64;
   if (!b64) return;
 
+  const markerPath = `${authPath}/.bootstrapped_from_env`;
+  if (existsSync(markerPath)) {
+    console.log('📦 AUTH_INFO_B64 detectado pero ya se restauró antes en este volumen — se ignora para no pisar la sesión viva (puedes borrar la variable en Railway).');
+    return;
+  }
+
   console.log('📦 Restaurando sesión desde AUTH_INFO_B64 (sobreescribiendo lo que haya en el volumen)...');
   try {
     clearAuthDirContents(authPath); // limpiar cualquier sesión vieja/inválida
     const tarPath = '/tmp/auth_info_bootstrap.tar.gz';
     writeFileSync(tarPath, Buffer.from(b64, 'base64'));
     execSync(`tar -xzf ${tarPath} -C ${process.cwd()}`);
+    writeFileSync(markerPath, new Date().toISOString());
     console.log('✅ Sesión restaurada desde AUTH_INFO_B64.');
   } catch (err) {
     console.error('❌ Error restaurando sesión desde AUTH_INFO_B64:', err.message);

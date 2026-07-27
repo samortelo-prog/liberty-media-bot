@@ -8,17 +8,17 @@ const FOLLOW_UPS = [
   {
     delay: 5 * 60 * 1000, // 5 minutos
     message:
-      'Puede revisar algunos trabajos y reseñas en nuestra web para que pueda ver el nivel que manejamos! libertymediastudio.com',
+      'te dejo el link de algunos trabajos que hemos hecho, para que veas el nivel: libertymediastudio.com',
   },
   {
     delay: 15 * 60 * 1000, // 15 minutos
     message:
-      'Me comenta si está disponible el día de hoy para poder hablar un poco más acerca de tu proyecto.',
+      'tienes un momento hoy para conversar un poco más sobre tu proyecto?',
   },
   {
     delay: 90 * 60 * 1000, // 1 hora y media
     message:
-      'Hola, tu web quedó pendiente, me comentas si aún estás interesado y si podría llamarte el día de hoy!',
+      'sigues interesado en avanzar con tu web? avísame si te puedo llamar hoy',
   },
 ];
 

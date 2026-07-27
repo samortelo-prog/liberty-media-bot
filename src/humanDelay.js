@@ -7,15 +7,22 @@
  * Espera un tiempo aleatorio como haría una persona real.
  * Muestra "escribiendo..." en WhatsApp durante ese tiempo.
  */
-export async function humanDelay(sock, jid, responseText = '') {
-  // Tiempo base según largo de la respuesta (más texto = más tiempo)
-  const words = responseText.split(' ').length;
-  const readingTime = randomBetween(1500, 3000);       // tiempo "leyendo"
-  const typingTime  = Math.min(words * 120, 6000);     // ~120ms por palabra, máx 6s
-  const totalDelay  = readingTime + typingTime;
+const MIN_DELAY = 30000; // piso: nunca responde antes de 30s, para sonar humano
+const MAX_EXTRA = 10000; // variación aleatoria arriba del piso
 
-  // Pausa inicial (leyendo)
-  await sleep(readingTime);
+export async function humanDelay(sock, jid, responseText = '') {
+  // Tiempo total nunca baja de 30s; mensajes largos y variación aleatoria lo alargan más
+  const words = responseText.split(' ').length;
+  const extraByLength = Math.min(words * 150, 15000); // hasta 15s extra si el mensaje es largo
+  const randomExtra = randomBetween(0, MAX_EXTRA);
+  const totalDelay = MIN_DELAY + extraByLength + randomExtra;
+
+  // Tiempo mostrando "escribiendo..." al final (para que se vea natural en WhatsApp)
+  const typingTime = Math.min(3000 + words * 100, 8000);
+  const silentTime = Math.max(totalDelay - typingTime, 0);
+
+  // Pausa inicial silenciosa (leyendo)
+  await sleep(silentTime);
 
   // Mostrar "escribiendo..." en WhatsApp
   try {

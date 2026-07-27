@@ -10,10 +10,19 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 /**
  * Obtiene respuesta de Samuel (GPT-4o-mini)
  */
+function getPeruNow() {
+  const now = new Date();
+  const fecha = now.toLocaleDateString('es-PE', { timeZone: 'America/Lima', weekday: 'long', day: 'numeric', month: 'long' });
+  const hora = now.toLocaleTimeString('es-PE', { timeZone: 'America/Lima', hour: '2-digit', minute: '2-digit', hour12: true });
+  return `${fecha}, ${hora}`;
+}
+
 export async function getAIResponse(history = [], userMessage) {
   try {
+    const horaActual = getPeruNow();
     const messages = [
       { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: `Hora actual real en Perú: ${horaActual}. Úsala para decidir si ofreces llamar hoy o al día siguiente, según la regla de horario de atención.` },
       ...history.slice(-12),
       { role: 'user', content: userMessage },
     ];

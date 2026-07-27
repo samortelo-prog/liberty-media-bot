@@ -142,6 +142,15 @@ async function processMessage(sock, message, jid, text) {
     // Conversación normal
     console.log(`🤖 Llamando a OpenAI para ${jid}...`);
     sessionManager.addMessage(jid, 'user', text);
+
+    // Detectar intención de agendar ANTES de responder, para avisarte a ti primero
+    const callInUserMsg = await detectCallScheduled(text);
+    let ownerNotified = false;
+    if (callInUserMsg) {
+      await notifyOwnerCallScheduled(sock, jid, message.pushName, text);
+      ownerNotified = true;
+    }
+
     const response = await getAIResponse(session.history, text);
     console.log(`✅ OpenAI respondió: "${response?.substring(0, 50)}"`);
     sessionManager.addMessage(jid, 'assistant', response);
@@ -150,12 +159,13 @@ async function processMessage(sock, message, jid, text) {
     await sock.sendMessage(jid, { text: response });
     console.log(`📤 Respuesta enviada a ${jid}`);
 
-    // Detectar llamada agendada en el mensaje del cliente O en la respuesta de Samuel
-    const callInUserMsg = await detectCallScheduled(text);
-    const callInBotResponse = response.toLowerCase().includes('en un momento te llamamos') ||
-                              response.toLowerCase().includes('te llamamos');
+    // Por si el bot confirmó la llamada aunque no lo detectamos en el mensaje del cliente
+    const callInBotResponse = response.toLowerCase().includes('te llamamos');
 
     if (callInUserMsg || callInBotResponse) {
+      if (!ownerNotified) {
+        await notifyOwnerCallScheduled(sock, jid, message.pushName, text);
+      }
       sessionManager.setMode(jid, 'call_scheduled');
       cancelFollowUps(jid);
       console.log(`📞 Llamada agendada con ${jid}`);
@@ -169,6 +179,26 @@ async function processMessage(sock, message, jid, text) {
     await sock.sendMessage(jid, {
       text: 'Perdona, algo falló. ¿Me repites? :)',
     });
+  }
+}
+
+// ── Notificar al dueño que hay que confirmar una cita/llamada ──
+async function notifyOwnerCallScheduled(sock, clientJid, clientName, clientMessage) {
+  if (!OWNER_PHONE) return;
+  const ownerJid = `${OWNER_PHONE}@s.whatsapp.net`;
+  const clientNumber = clientJid.replace('@s.whatsapp.net', '');
+  const name = clientName || 'Sin nombre';
+  try {
+    await sock.sendMessage(ownerJid, {
+      text:
+        `📞 Cita por confirmar\n\n` +
+        `👤 ${name}\n` +
+        `📞 wa.me/${clientNumber}\n` +
+        `💬 "${clientMessage}"\n\n` +
+        `Confirma con el cliente el horario de la llamada.`,
+    });
+  } catch (err) {
+    console.error('⚠️ No se pudo notificar la cita al dueño:', err.message);
   }
 }
 

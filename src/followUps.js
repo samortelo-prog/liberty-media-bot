@@ -2,21 +2,36 @@
 // LIBERTY MEDIA - SEGUIMIENTOS AUTOMÁTICOS
 // ==========================================
 
+import { existsSync } from 'fs';
+
 const followUpTimers = new Map(); // jid → { timers: [], cancelled: false }
+
+// Foto con lo que incluye el desarrollo de la web. Ponla en esta ruta cuando
+// la tengas — si el archivo no existe, este seguimiento se salta solo sin error.
+const INCLUDES_IMAGE_PATH = './assets/incluye-desarrollo.jpg';
 
 const FOLLOW_UPS = [
   {
     delay: 5 * 60 * 1000, // 5 minutos
+    type: 'text',
     message:
-      'te dejo el link de algunos trabajos que hemos hecho, para que veas el nivel: libertymediastudio.com',
+      'Te invito a que visites nuestra web para que veas información, testimonios y algunos trabajos que hemos concretado: libertymediastudio.com',
   },
   {
     delay: 15 * 60 * 1000, // 15 minutos
+    type: 'text',
     message:
       'tienes un momento hoy para conversar un poco más sobre tu proyecto?',
   },
   {
+    delay: 30 * 60 * 1000, // 30 minutos
+    type: 'image',
+    imagePath: INCLUDES_IMAGE_PATH,
+    caption: 'esto es lo que incluye el desarrollo de tu página web:',
+  },
+  {
     delay: 90 * 60 * 1000, // 1 hora y media
+    type: 'text',
     message:
       'sigues interesado en avanzar con tu web? avísame si te puedo llamar hoy',
   },
@@ -49,7 +64,15 @@ export function startFollowUps(sock, jid, history = []) {
       if (!current || current.cancelled) return;
 
       try {
-        await sock.sendMessage(jid, { text: fu.message });
+        if (fu.type === 'image') {
+          if (!existsSync(fu.imagePath)) {
+            console.log(`⏭️  Seguimiento con foto omitido (todavía no existe ${fu.imagePath})`);
+            return;
+          }
+          await sock.sendMessage(jid, { image: { url: fu.imagePath }, caption: fu.caption });
+        } else {
+          await sock.sendMessage(jid, { text: fu.message });
+        }
         console.log(`📤 Seguimiento enviado a ${jid} (${fu.delay / 60000} min)`);
       } catch (err) {
         console.error(`❌ Error enviando seguimiento a ${jid}:`, err.message);

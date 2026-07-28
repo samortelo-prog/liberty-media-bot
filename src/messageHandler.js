@@ -8,7 +8,11 @@ import { startFollowUps, cancelFollowUps } from './followUps.js';
 import { registerMessage, clearBuffer } from './messageBuffer.js';
 import { humanDelay } from './humanDelay.js';
 import { transcribeAudio, isAudioMessage } from './audioTranscriber.js';
+import { existsSync } from 'fs';
 import { RESUME_KEYWORDS, OWNER_PHONE } from './config.js';
+
+// Brochure que se manda después de 2-3 intercambios reales (no en el primer contacto). Súbelo a esta ruta.
+const BROCHURE_PATH = './assets/Desarrollo Web.pdf';
 
 // ── Mensaje enviado por el dueño desde su celular ──
 // Pausa el bot automáticamente en ese chat
@@ -158,6 +162,28 @@ async function processMessage(sock, message, jid, text) {
     await humanDelay(sock, jid, response);
     await sock.sendMessage(jid, { text: response });
     console.log(`📤 Respuesta enviada a ${jid}`);
+
+    // Brochure: recién después de 2-3 intercambios reales (no en el primer contacto),
+    // para que se sienta ganado por la conversación y no como un envío masivo.
+    const userMessageCount = sessionManager.getHistory(jid).filter((m) => m.role === 'user').length;
+    if (userMessageCount >= 3 && !sessionManager.hasSentFollowUp(jid, 'brochure')) {
+      if (existsSync(BROCHURE_PATH)) {
+        try {
+          await sock.sendMessage(jid, {
+            document: { url: BROCHURE_PATH },
+            fileName: 'Desarrollo Web - Liberty Media.pdf',
+            mimetype: 'application/pdf',
+            caption: 'Te comparto nuestra propuesta de desarrollo web',
+          });
+          console.log(`📄 Brochure enviado a ${jid}`);
+        } catch (err) {
+          console.error(`⚠️ No se pudo enviar el brochure a ${jid}:`, err.message);
+        }
+      } else {
+        console.log(`⏭️  Brochure omitido (no existe ${BROCHURE_PATH})`);
+      }
+      sessionManager.markFollowUpSent(jid, 'brochure');
+    }
 
     // Por si el bot confirmó la llamada aunque no lo detectamos en el mensaje del cliente
     const callInBotResponse = response.toLowerCase().includes('te llamamos');

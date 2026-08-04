@@ -7,6 +7,17 @@ export const OWNER_PHONE = process.env.OWNER_PHONE || '51944120858';
 export const STOP_KEYWORDS = ['.'];
 export const RESUME_KEYWORDS = ['bot', 'auto', 'automatico', 'automático'];
 
+// Match de palabra completa (no substring) para evitar falsos positivos como
+// "tengo una automotriz" o "un robot" activando por error el modo reactivar.
+const RESUME_KEYWORDS_REGEX = new RegExp(
+  `\\b(${RESUME_KEYWORDS.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`,
+  'i'
+);
+
+export function matchesResumeKeyword(text) {
+  return RESUME_KEYWORDS_REGEX.test(text || '');
+}
+
 export const CALL_SCHEDULED_PHRASES = [
   'puedes llamarme', 'llámame', 'llamame', 'me llamas',
   'disponible a las', 'disponible hoy', 'pueden llamarme',

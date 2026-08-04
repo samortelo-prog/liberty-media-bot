@@ -64,14 +64,21 @@ export async function detectCallScheduled(userMessage) {
   // Detectar número de teléfono peruano (9 dígitos empezando en 9)
   const hasPhone = /\b9\d{8}\b/.test(userMessage);
 
-  // Frases directas de confirmación
-  const directConfirm = [
+  // Frases directas de confirmación (multi-palabra: seguro usar .includes)
+  const directConfirmPhrases = [
     'si me puedes llamar', 'sí me puedes llamar',
     'si puedes llamarme', 'dale llámame', 'dale llamame',
-    'si', 'sí', 'dale', 'ok llámame', 'ya puedes llamar',
+    'ok llámame', 'ya puedes llamar',
     'perfecto llámenme', 'bueno llámenme',
-  ].some((p) => userMessage.toLowerCase().trim() === p ||
-                userMessage.toLowerCase().includes(p));
+  ];
+  // Palabras sueltas cortas: SOLO exact-match, porque como substring generan
+  // falsos positivos (ej. "si" aparece dentro de "visita", "asistencia", etc).
+  const directConfirmExact = ['si', 'sí', 'dale', 'ok'];
+
+  const normalized = userMessage.toLowerCase().trim();
+  const directConfirm =
+    directConfirmPhrases.some((p) => normalized.includes(p)) ||
+    directConfirmExact.includes(normalized);
 
   if (!hasKeyword && !hasPhone && !directConfirm) return false;
 

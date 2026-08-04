@@ -27,9 +27,13 @@ db.exec(`
     started INTEGER DEFAULT 0,
     mode TEXT DEFAULT 'bot',
     history TEXT DEFAULT '[]',
-    last_activity INTEGER DEFAULT 0
+    last_activity INTEGER DEFAULT 0,
+    sent_followups TEXT DEFAULT '[]'
   );
 `);
+
+// Por si la tabla ya existía de antes sin esta columna
+try { db.exec(`ALTER TABLE sessions ADD COLUMN sent_followups TEXT DEFAULT '[]'`); } catch (_) {}
 
 console.log(`💾 Base de datos iniciada: ${DB_PATH}`);
 
@@ -37,7 +41,7 @@ console.log(`💾 Base de datos iniciada: ${DB_PATH}`);
 const stmts = {
   get:    db.prepare(`SELECT * FROM sessions WHERE jid = ?`),
   insert: db.prepare(`INSERT OR IGNORE INTO sessions (jid, last_activity) VALUES (?, ?)`),
-  update: db.prepare(`UPDATE sessions SET started=?, mode=?, history=?, last_activity=? WHERE jid=?`),
+  update: db.prepare(`UPDATE sessions SET started=?, mode=?, history=?, last_activity=?, sent_followups=? WHERE jid=?`),
   delete: db.prepare(`DELETE FROM sessions WHERE last_activity < ?`),
 };
 
@@ -52,10 +56,11 @@ class SessionManager {
 
   _rowToSession(row) {
     return {
-      started:      row.started === 1,
-      mode:         row.mode || 'bot',
-      history:      JSON.parse(row.history || '[]'),
-      lastActivity: row.last_activity || Date.now(),
+      started:       row.started === 1,
+      mode:          row.mode || 'bot',
+      history:       JSON.parse(row.history || '[]'),
+      lastActivity:  row.last_activity || Date.now(),
+      sentFollowUps: JSON.parse(row.sent_followups || '[]'),
     };
   }
 
@@ -65,6 +70,7 @@ class SessionManager {
       session.mode,
       JSON.stringify(session.history),
       Date.now(),
+      JSON.stringify(session.sentFollowUps || []),
       jid
     );
   }
@@ -97,6 +103,18 @@ class SessionManager {
 
   getHistory(jid) {
     return this.getOrCreate(jid).history;
+  }
+
+  hasSentFollowUp(jid, id) {
+    return this.getOrCreate(jid).sentFollowUps.includes(id);
+  }
+
+  markFollowUpSent(jid, id) {
+    const session = this.getOrCreate(jid);
+    if (!session.sentFollowUps.includes(id)) {
+      session.sentFollowUps.push(id);
+      this._save(jid, session);
+    }
   }
 
   cleanup() {

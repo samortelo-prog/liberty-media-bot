@@ -73,8 +73,38 @@ console.log = (...args) => {
   originalLog(...args);
 };
 
+// Referencia al socket activo, para poder cerrarlo antes de crear uno nuevo
+// en cada reconexión. Sin esto, cada reconexión deja un socket "zombie"
+// escuchando mensajes, y el mismo mensaje termina respondido varias veces.
+let currentSock = null;
+
+// IDs de mensajes ya procesados, para no responder dos veces al mismo mensaje
+// (Baileys a veces reentrega el mismo mensaje más de una vez).
+const processedMessageIds = new Set();
+const MAX_PROCESSED_IDS = 500;
+
+function alreadyProcessed(id) {
+  if (!id) return false;
+  if (processedMessageIds.has(id)) return true;
+  processedMessageIds.add(id);
+  if (processedMessageIds.size > MAX_PROCESSED_IDS) {
+    const first = processedMessageIds.values().next().value;
+    processedMessageIds.delete(first);
+  }
+  return false;
+}
+
 async function startBot() {
   console.log('🚀 Iniciando Liberty Media WhatsApp Bot...');
+
+  // Cerrar cualquier socket anterior antes de abrir uno nuevo
+  if (currentSock) {
+    try {
+      currentSock.ev.removeAllListeners();
+      currentSock.end(new Error('reconectando'));
+    } catch (_) {}
+    currentSock = null;
+  }
 
   const authPath = './auth_info';
   console.log(`📁 Auth path: ${process.cwd()}/${authPath}`);
@@ -133,6 +163,10 @@ async function startBot() {
     for (const message of messages) {
       if (message.key.remoteJid?.endsWith('@g.us')) continue;
       if (message.key.remoteJid === 'status@broadcast') continue;
+      if (alreadyProcessed(message.key.id)) {
+        console.log(`⏭️  Mensaje duplicado ignorado (id ${message.key.id})`);
+        continue;
+      }
 
       if (message.key.fromMe) {
         // Mensaje enviado desde el celular del dueño → pausar bot en ese chat
@@ -144,6 +178,7 @@ async function startBot() {
     }
   });
 
+  currentSock = sock;
   return sock;
 }
 

@@ -9,7 +9,7 @@ import { registerMessage, clearBuffer } from './messageBuffer.js';
 import { humanDelay } from './humanDelay.js';
 import { transcribeAudio, isAudioMessage } from './audioTranscriber.js';
 import { existsSync } from 'fs';
-import { RESUME_KEYWORDS, OWNER_PHONE } from './config.js';
+import { OWNER_PHONE, STOP_KEYWORDS, matchesResumeKeyword } from './config.js';
 
 // Brochure que se manda después de 2-3 intercambios reales (no en el primer contacto). Súbelo a esta ruta.
 const BROCHURE_PATH = './assets/Desarrollo Web.pdf';
@@ -32,7 +32,7 @@ export async function handleOwnerMessage(sock, message) {
   if (text.includes('🔔 Nuevo cliente') || text.includes('🤖 Bot reactivado')) return;
 
   // Si el dueño escribe "bot" en el chat, reactiva el bot
-  if (RESUME_KEYWORDS.some((kw) => text.toLowerCase().includes(kw))) {
+  if (matchesResumeKeyword(text)) {
     clearBuffer(jid);
     sessionManager.setMode(jid, 'bot');
     console.log(`🤖 Bot reactivado por el dueño en ${jid}`);
@@ -81,8 +81,8 @@ export async function handleMessage(sock, message) {
 
   console.log(`📩 [${jid}] [${mode}] → "${text}"`);
 
-  // Comando manual "." para pausar desde el mismo WhatsApp del bot
-  if (text === '.') {
+  // Comando manual para pausar desde el mismo WhatsApp del bot
+  if (STOP_KEYWORDS.includes(text)) {
     clearBuffer(jid);
     cancelFollowUps(jid);
     sessionManager.setMode(jid, 'paused');
@@ -90,15 +90,18 @@ export async function handleMessage(sock, message) {
     return;
   }
 
-  // Reactivar bot escribiendo "bot"
-  if (RESUME_KEYWORDS.some((kw) => text.toLowerCase().includes(kw))) {
-    sessionManager.setMode(jid, 'bot');
-    return;
-  }
-
-  // Si está pausado o llamada agendada → ignorar
+  // Si está pausado o con llamada agendada, solo una palabra de reactivación
+  // (palabra completa, no substring) lo vuelve a encender. Este chequeo va
+  // SOLO acá adentro — si estuviera antes, cualquier mensaje normal que
+  // contenga "auto" (ej. "tengo una automotriz") apagaría el flujo normal
+  // sin querer, cortando la conversación sin responder nada.
   if (mode === 'paused' || mode === 'call_scheduled') {
-    console.log(`⏸️ Ignorado (modo: ${mode})`);
+    if (matchesResumeKeyword(text)) {
+      sessionManager.setMode(jid, 'bot');
+      console.log(`🤖 Bot reactivado por el cliente en ${jid}`);
+    } else {
+      console.log(`⏸️ Ignorado (modo: ${mode})`);
+    }
     return;
   }
 
@@ -115,8 +118,19 @@ export async function handleMessage(sock, message) {
   });
 }
 
+// Evita que dos mensajes del mismo chat (ej. un audio y un texto casi al
+// mismo tiempo) se procesen en paralelo y pisen el estado de la sesión
+// (dos saludos, dos respuestas, etc).
+const processingJids = new Set();
+
 // ── Procesa el mensaje final acumulado ──
 async function processMessage(sock, message, jid, text) {
+  if (processingJids.has(jid)) {
+    console.log(`⏭️  Ya hay un mensaje en proceso para ${jid}, se descarta este para evitar carrera`);
+    return;
+  }
+  processingJids.add(jid);
+
   const session = sessionManager.getOrCreate(jid);
   console.log(`🔵 processMessage iniciado para ${jid}, started=${session.started}`);
 
@@ -138,8 +152,8 @@ async function processMessage(sock, message, jid, text) {
       sessionManager.addMessage(jid, 'user', text);
       sessionManager.addMessage(jid, 'assistant', greeting);
 
-      notifyOwner(sock, jid, message.pushName, text);
-      startFollowUps(sock, jid, session.history);
+      await notifyOwner(sock, jid, message.pushName, text);
+      startFollowUps(sock, jid, sessionManager.getHistory(jid));
       return;
     }
 
@@ -196,15 +210,19 @@ async function processMessage(sock, message, jid, text) {
       cancelFollowUps(jid);
       console.log(`📞 Llamada agendada con ${jid}`);
     } else {
-      startFollowUps(sock, jid, session.history);
+      startFollowUps(sock, jid, sessionManager.getHistory(jid));
     }
 
   } catch (error) {
     console.error(`❌ Error con ${jid}:`, error.message);
     console.error(error.stack);
-    await sock.sendMessage(jid, {
-      text: 'Perdona, algo falló. ¿Me repites? :)',
-    });
+    try {
+      await sock.sendMessage(jid, {
+        text: 'Perdona, algo falló. ¿Me repites? :)',
+      });
+    } catch (_) {}
+  } finally {
+    processingJids.delete(jid);
   }
 }
 

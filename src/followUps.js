@@ -2,34 +2,27 @@
 // LIBERTY MEDIA - SEGUIMIENTOS AUTOMÁTICOS
 // ==========================================
 
-import { existsSync } from 'fs';
+import { sessionManager } from './sessions.js';
 
 const followUpTimers = new Map(); // jid → { timers: [], cancelled: false }
 
-// Foto con lo que incluye el desarrollo de la web. Ponla en esta ruta cuando
-// la tengas — si el archivo no existe, este seguimiento se salta solo sin error.
-const INCLUDES_IMAGE_PATH = './assets/incluye-desarrollo.jpg';
-
 const FOLLOW_UPS = [
   {
+    id: 'portfolio_link',
     delay: 5 * 60 * 1000, // 5 minutos
     type: 'text',
     message:
       'Te invito a que visites nuestra web para que veas información, testimonios y algunos trabajos que hemos concretado: libertymediastudio.com',
   },
   {
+    id: 'ask_availability',
     delay: 15 * 60 * 1000, // 15 minutos
     type: 'text',
     message:
       'tienes un momento hoy para conversar un poco más sobre tu proyecto?',
   },
   {
-    delay: 30 * 60 * 1000, // 30 minutos
-    type: 'image',
-    imagePath: INCLUDES_IMAGE_PATH,
-    caption: 'esto es lo que incluye el desarrollo de tu página web:',
-  },
-  {
+    id: 'still_interested',
     delay: 90 * 60 * 1000, // 1 hora y media
     type: 'text',
     message:
@@ -39,12 +32,14 @@ const FOLLOW_UPS = [
 
 /**
  * Inicia los timers de seguimiento para un usuario.
- * portfolioSent: si ya se envió el link del portafolio, salta el seguimiento de 5 min.
+ * Cada seguimiento se envía como máximo una vez por conversación
+ * (se recuerda en sessionManager, no depende de que el timer llegue a cumplirse).
  */
 export function startFollowUps(sock, jid, history = []) {
   cancelFollowUps(jid);
 
-  // Revisar si el portafolio ya fue mencionado en la conversación
+  // El link del portafolio puede haberlo dado Samuel también en la conversación normal,
+  // no solo por seguimiento automático — en ese caso tampoco lo repetimos.
   const portfolioAlreadySent = history.some(
     (msg) => msg.role === 'assistant' && msg.content?.includes('libertymediastudio.com')
   );
@@ -53,27 +48,25 @@ export function startFollowUps(sock, jid, history = []) {
   followUpTimers.set(jid, entry);
 
   for (const fu of FOLLOW_UPS) {
-    // Si el portafolio ya fue enviado, saltar el seguimiento de 5 minutos
-    if (fu.delay === 5 * 60 * 1000 && portfolioAlreadySent) {
-      console.log(`⏭️  Seguimiento de 5 min omitido (portafolio ya enviado)`);
+    if (sessionManager.hasSentFollowUp(jid, fu.id)) {
+      console.log(`⏭️  Seguimiento "${fu.id}" omitido (ya se envió antes en esta conversación)`);
+      continue;
+    }
+    if (fu.id === 'portfolio_link' && portfolioAlreadySent) {
+      sessionManager.markFollowUpSent(jid, fu.id);
+      console.log(`⏭️  Seguimiento "${fu.id}" omitido (el link ya se mencionó en la conversación)`);
       continue;
     }
 
     const t = setTimeout(async () => {
       const current = followUpTimers.get(jid);
       if (!current || current.cancelled) return;
+      if (sessionManager.hasSentFollowUp(jid, fu.id)) return; // seguro extra ante condiciones de carrera
 
       try {
-        if (fu.type === 'image') {
-          if (!existsSync(fu.imagePath)) {
-            console.log(`⏭️  Seguimiento con foto omitido (todavía no existe ${fu.imagePath})`);
-            return;
-          }
-          await sock.sendMessage(jid, { image: { url: fu.imagePath }, caption: fu.caption });
-        } else {
-          await sock.sendMessage(jid, { text: fu.message });
-        }
-        console.log(`📤 Seguimiento enviado a ${jid} (${fu.delay / 60000} min)`);
+        await sock.sendMessage(jid, { text: fu.message });
+        sessionManager.markFollowUpSent(jid, fu.id);
+        console.log(`📤 Seguimiento "${fu.id}" enviado a ${jid} (${fu.delay / 60000} min)`);
       } catch (err) {
         console.error(`❌ Error enviando seguimiento a ${jid}:`, err.message);
       }

@@ -161,12 +161,16 @@ async function processMessage(sock, message, jid, text) {
     console.log(`🤖 Llamando a OpenAI para ${jid}...`);
     sessionManager.addMessage(jid, 'user', text);
 
-    // Detectar intención de agendar ANTES de responder, para avisarte a ti primero
+    // Detectar intención de agendar ANTES de responder. Si el cliente ya pidió
+    // que lo llamen (a cualquier hora), el bot se pausa y te avisa a ti — no
+    // manda ninguna confirmación propia, para que tú definas la hora con el cliente.
     const callInUserMsg = await detectCallScheduled(text);
-    let ownerNotified = false;
     if (callInUserMsg) {
       await notifyOwnerCallScheduled(sock, jid, message.pushName, text);
-      ownerNotified = true;
+      sessionManager.setMode(jid, 'call_scheduled');
+      cancelFollowUps(jid);
+      console.log(`📞 Llamada solicitada por ${jid}, bot pausado a la espera de que confirmes`);
+      return;
     }
 
     const response = await getAIResponse(session.history, text);
@@ -199,13 +203,12 @@ async function processMessage(sock, message, jid, text) {
       sessionManager.markFollowUpSent(jid, 'brochure');
     }
 
-    // Por si el bot confirmó la llamada aunque no lo detectamos en el mensaje del cliente
+    // Por si el bot confirmó la llamada con su propia respuesta (caso raro, ya que
+    // el chequeo de arriba debería atajarlo antes) — seguro extra para no perder el aviso.
     const callInBotResponse = response.toLowerCase().includes('te llamamos');
 
-    if (callInUserMsg || callInBotResponse) {
-      if (!ownerNotified) {
-        await notifyOwnerCallScheduled(sock, jid, message.pushName, text);
-      }
+    if (callInBotResponse) {
+      await notifyOwnerCallScheduled(sock, jid, message.pushName, text);
       sessionManager.setMode(jid, 'call_scheduled');
       cancelFollowUps(jid);
       console.log(`📞 Llamada agendada con ${jid}`);

@@ -138,8 +138,20 @@ async function startBot() {
 
     if (connection === 'close') {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
       console.log(`❌ Conexión cerrada. Código: ${statusCode}`);
+
+      if (statusCode === DisconnectReason.connectionReplaced) {
+        // Otra sesión (ej. un deploy nuevo, o el bot corriendo en otro lugar)
+        // tomó esta misma cuenta. NO hay que pelear por recuperarla — si este
+        // proceso insiste en reconectar, se genera un forcejeo entre dos
+        // instancias que termina corrompiendo las claves de cifrado (Bad MAC).
+        // Simplemente nos rendimos y dejamos que la otra instancia siga.
+        console.log('🔁 Sesión reemplazada por otra conexión activa. Este proceso se retira sin reconectar.');
+        process.exit(0);
+        return;
+      }
+
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
       if (shouldReconnect) {
         console.log('🔄 Reconectando en 5 segundos...');
         setTimeout(startBot, 5000);

@@ -9,7 +9,7 @@ import { registerMessage, clearBuffer } from './messageBuffer.js';
 import { humanDelay } from './humanDelay.js';
 import { transcribeAudio, isAudioMessage } from './audioTranscriber.js';
 import { existsSync } from 'fs';
-import { OWNER_PHONE, STOP_KEYWORDS, matchesResumeKeyword } from './config.js';
+import { OWNER_PHONE, STOP_KEYWORDS, matchesResumeKeyword, CALL_INTENT_MESSAGE } from './config.js';
 
 // Brochure que se manda después de 2-3 intercambios reales (no en el primer contacto). Súbelo a esta ruta.
 const BROCHURE_PATH = './assets/Desarrollo Web.pdf';
@@ -137,41 +137,45 @@ async function processMessage(sock, message, jid, text) {
   cancelFollowUps(jid);
 
   try {
-    // Primer mensaje del cliente → saludo fijo + notificar al dueño
-    if (!session.started) {
-      sessionManager.setStarted(jid);
-      console.log(`👋 Enviando saludo a ${jid}...`);
-
-      const greeting = `¡Hola! Soy Samuel de Liberty Media, hacemos páginas web para negocios. ¿Qué tipo de negocio tienes?`;
-
-      await humanDelay(sock, jid, greeting);
-      console.log(`📤 Enviando mensaje a ${jid}...`);
-      await sock.sendMessage(jid, { text: greeting });
-      console.log(`✅ Saludo enviado a ${jid}`);
-
-      sessionManager.addMessage(jid, 'user', text);
-      sessionManager.addMessage(jid, 'assistant', greeting);
-
-      await notifyOwner(sock, jid, message.pushName, text);
-      startFollowUps(sock, jid, sessionManager.getHistory(jid));
-      return;
-    }
-
-    // Conversación normal
-    console.log(`🤖 Llamando a OpenAI para ${jid}...`);
     sessionManager.addMessage(jid, 'user', text);
 
-    // Detectar intención de agendar ANTES de responder. Si el cliente ya pidió
-    // que lo llamen (a cualquier hora), el bot se pausa y te avisa a ti — no
-    // manda ninguna confirmación propia, para que tú definas la hora con el cliente.
+    // Prioridad absoluta, por encima de cualquier otra cosa: si el lead muestra
+    // intención de llamada (en cualquier punto, incluso en su primer mensaje),
+    // el bot NUNCA confirma horario ni sigue calificando — manda siempre el
+    // mismo texto fijo + el PDF, y te notifica a ti para que definas la hora.
     const callInUserMsg = await detectCallScheduled(text);
     if (callInUserMsg) {
+      await sendCallIntentReply(sock, jid);
+      sessionManager.addMessage(jid, 'assistant', CALL_INTENT_MESSAGE);
+      sessionManager.setStarted(jid);
       await notifyOwnerCallScheduled(sock, jid, message.pushName, text);
       sessionManager.setMode(jid, 'call_scheduled');
       cancelFollowUps(jid);
-      console.log(`📞 Llamada solicitada por ${jid}, bot pausado a la espera de que confirmes`);
+      console.log(`📞 Intención de llamada de ${jid}, bot pausado a la espera de que confirmes`);
       return;
     }
+
+    // Primer mensaje del cliente → saludo generado por IA (varía cada vez) + notificar al dueño
+    if (!session.started) {
+      sessionManager.setStarted(jid);
+      console.log(`👋 Generando saludo inicial para ${jid}...`);
+
+      const greeting = await getAIResponse([], text);
+      console.log(`✅ Saludo generado: "${greeting?.substring(0, 60)}"`);
+
+      await humanDelay(sock, jid, greeting);
+      await sock.sendMessage(jid, { text: greeting });
+      console.log(`📤 Saludo enviado a ${jid}`);
+
+      sessionManager.addMessage(jid, 'assistant', greeting);
+
+      await notifyOwner(sock, jid, message.pushName, text);
+      startFollowUps(sock, jid);
+      return;
+    }
+
+    // Conversación normal (pregunta de calificación, o cierre)
+    console.log(`🤖 Llamando a OpenAI para ${jid}...`);
 
     const response = await getAIResponse(session.history, text);
     console.log(`✅ OpenAI respondió: "${response?.substring(0, 50)}"`);
@@ -181,10 +185,9 @@ async function processMessage(sock, message, jid, text) {
     await sock.sendMessage(jid, { text: response });
     console.log(`📤 Respuesta enviada a ${jid}`);
 
-    // Brochure: se adjunta junto con el mensaje de cierre (después de las 2 preguntas
-    // de calificación: tipo de negocio + presupuesto/fecha). El texto de cierre ya lo
-    // genera la IA según el SYSTEM_PROMPT, acá solo mandamos el documento sin caption
-    // repetido para no duplicar lo que Samuel ya dijo en el mensaje anterior.
+    // Brochure: se adjunta junto con el mensaje de cierre (después de la pregunta
+    // de calificación adicional: presupuesto o fecha). El texto de cierre ya lo
+    // genera la IA según el SYSTEM_PROMPT, acá solo mandamos el documento.
     const userMessageCount = sessionManager.getHistory(jid).filter((m) => m.role === 'user').length;
     if (userMessageCount >= 3 && !sessionManager.hasSentFollowUp(jid, 'brochure')) {
       if (existsSync(BROCHURE_PATH)) {
@@ -204,18 +207,7 @@ async function processMessage(sock, message, jid, text) {
       sessionManager.markFollowUpSent(jid, 'brochure');
     }
 
-    // Por si el bot confirmó la llamada con su propia respuesta (caso raro, ya que
-    // el chequeo de arriba debería atajarlo antes) — seguro extra para no perder el aviso.
-    const callInBotResponse = response.toLowerCase().includes('te llamamos');
-
-    if (callInBotResponse) {
-      await notifyOwnerCallScheduled(sock, jid, message.pushName, text);
-      sessionManager.setMode(jid, 'call_scheduled');
-      cancelFollowUps(jid);
-      console.log(`📞 Llamada agendada con ${jid}`);
-    } else {
-      startFollowUps(sock, jid, sessionManager.getHistory(jid));
-    }
+    startFollowUps(sock, jid);
 
   } catch (error) {
     console.error(`❌ Error con ${jid}:`, error.message);
@@ -228,6 +220,30 @@ async function processMessage(sock, message, jid, text) {
   } finally {
     processingJids.delete(jid);
   }
+}
+
+// ── Respuesta fija (texto exacto, nunca generado por IA) + PDF cuando el
+// lead muestra intención de llamada ──
+async function sendCallIntentReply(sock, jid) {
+  await humanDelay(sock, jid, CALL_INTENT_MESSAGE);
+  await sock.sendMessage(jid, { text: CALL_INTENT_MESSAGE });
+  console.log(`📤 Mensaje de intención de llamada enviado a ${jid}`);
+
+  if (existsSync(BROCHURE_PATH)) {
+    try {
+      await sock.sendMessage(jid, {
+        document: { url: BROCHURE_PATH },
+        fileName: 'Desarrollo Web - Liberty Media.pdf',
+        mimetype: 'application/pdf',
+      });
+      console.log(`📄 Brochure enviado a ${jid} (intención de llamada)`);
+    } catch (err) {
+      console.error(`⚠️ No se pudo enviar el brochure a ${jid}:`, err.message);
+    }
+  } else {
+    console.log(`⏭️  Brochure omitido (no existe ${BROCHURE_PATH})`);
+  }
+  sessionManager.markFollowUpSent(jid, 'brochure');
 }
 
 // ── Notificar al dueño que hay que confirmar una cita/llamada ──

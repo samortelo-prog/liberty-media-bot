@@ -3,79 +3,46 @@
 // ==========================================
 
 import { sessionManager } from './sessions.js';
+import { NO_RESPONSE_REMINDER } from './config.js';
 
 const followUpTimers = new Map(); // jid → { timers: [], cancelled: false }
 
-const FOLLOW_UPS = [
-  {
-    id: 'portfolio_link',
-    delay: 5 * 60 * 1000, // 5 minutos
-    type: 'text',
-    message:
-      'Te invito a que visites nuestra web para que veas información, testimonios y algunos trabajos que hemos concretado: libertymediastudio.com',
-  },
-  {
-    id: 'ask_availability',
-    delay: 15 * 60 * 1000, // 15 minutos
-    type: 'text',
-    message:
-      'tienes un momento hoy para conversar un poco más sobre tu proyecto?',
-  },
-  {
-    id: 'still_interested',
-    delay: 90 * 60 * 1000, // 1 hora y media
-    type: 'text',
-    message:
-      'sigues interesado en avanzar con tu web? avísame si te puedo llamar hoy',
-  },
-];
+// Un único recordatorio si el lead no responde a una pregunta en 15-20 min.
+// No avanza de paso, no manda link ni PDF, y no se repite si no contesta a este.
+const REMINDER_DELAY = 18 * 60 * 1000; // punto medio de 15-20 min
+const REMINDER_ID = 'no_response_reminder';
 
 /**
- * Inicia los timers de seguimiento para un usuario.
- * Cada seguimiento se envía como máximo una vez por conversación
- * (se recuerda en sessionManager, no depende de que el timer llegue a cumplirse).
+ * Programa el único recordatorio de "sin respuesta" para un chat.
+ * Se envía como máximo una vez por conversación.
  */
-export function startFollowUps(sock, jid, history = []) {
+export function startFollowUps(sock, jid) {
   cancelFollowUps(jid);
 
-  // El link del portafolio puede haberlo dado Samuel también en la conversación normal,
-  // no solo por seguimiento automático — en ese caso tampoco lo repetimos.
-  const portfolioAlreadySent = history.some(
-    (msg) => msg.role === 'assistant' && msg.content?.includes('libertymediastudio.com')
-  );
+  if (sessionManager.hasSentFollowUp(jid, REMINDER_ID)) {
+    console.log(`⏭️  Recordatorio omitido (ya se envió antes en esta conversación)`);
+    return;
+  }
 
   const entry = { timers: [], cancelled: false };
   followUpTimers.set(jid, entry);
 
-  for (const fu of FOLLOW_UPS) {
-    if (sessionManager.hasSentFollowUp(jid, fu.id)) {
-      console.log(`⏭️  Seguimiento "${fu.id}" omitido (ya se envió antes en esta conversación)`);
-      continue;
+  const t = setTimeout(async () => {
+    const current = followUpTimers.get(jid);
+    if (!current || current.cancelled) return;
+    if (sessionManager.hasSentFollowUp(jid, REMINDER_ID)) return; // seguro extra ante condiciones de carrera
+
+    try {
+      await sock.sendMessage(jid, { text: NO_RESPONSE_REMINDER });
+      sessionManager.markFollowUpSent(jid, REMINDER_ID);
+      console.log(`📤 Recordatorio enviado a ${jid}`);
+    } catch (err) {
+      console.error(`❌ Error enviando recordatorio a ${jid}:`, err.message);
     }
-    if (fu.id === 'portfolio_link' && portfolioAlreadySent) {
-      sessionManager.markFollowUpSent(jid, fu.id);
-      console.log(`⏭️  Seguimiento "${fu.id}" omitido (el link ya se mencionó en la conversación)`);
-      continue;
-    }
+  }, REMINDER_DELAY);
 
-    const t = setTimeout(async () => {
-      const current = followUpTimers.get(jid);
-      if (!current || current.cancelled) return;
-      if (sessionManager.hasSentFollowUp(jid, fu.id)) return; // seguro extra ante condiciones de carrera
-
-      try {
-        await sock.sendMessage(jid, { text: fu.message });
-        sessionManager.markFollowUpSent(jid, fu.id);
-        console.log(`📤 Seguimiento "${fu.id}" enviado a ${jid} (${fu.delay / 60000} min)`);
-      } catch (err) {
-        console.error(`❌ Error enviando seguimiento a ${jid}:`, err.message);
-      }
-    }, fu.delay);
-
-    entry.timers.push(t);
-  }
-
-  console.log(`⏱️  Seguimientos programados para ${jid}`);
+  entry.timers.push(t);
+  console.log(`⏱️  Recordatorio programado para ${jid} (${REMINDER_DELAY / 60000} min)`);
 }
 
 /**

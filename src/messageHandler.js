@@ -181,8 +181,10 @@ async function processMessage(sock, message, jid, text) {
     await sock.sendMessage(jid, { text: response });
     console.log(`📤 Respuesta enviada a ${jid}`);
 
-    // Brochure: recién después de 2-3 intercambios reales (no en el primer contacto),
-    // para que se sienta ganado por la conversación y no como un envío masivo.
+    // Brochure: se adjunta junto con el mensaje de cierre (después de las 2 preguntas
+    // de calificación: tipo de negocio + presupuesto/fecha). El texto de cierre ya lo
+    // genera la IA según el SYSTEM_PROMPT, acá solo mandamos el documento sin caption
+    // repetido para no duplicar lo que Samuel ya dijo en el mensaje anterior.
     const userMessageCount = sessionManager.getHistory(jid).filter((m) => m.role === 'user').length;
     if (userMessageCount >= 3 && !sessionManager.hasSentFollowUp(jid, 'brochure')) {
       if (existsSync(BROCHURE_PATH)) {
@@ -191,7 +193,6 @@ async function processMessage(sock, message, jid, text) {
             document: { url: BROCHURE_PATH },
             fileName: 'Desarrollo Web - Liberty Media.pdf',
             mimetype: 'application/pdf',
-            caption: 'Te comparto nuestra propuesta de desarrollo web',
           });
           console.log(`📄 Brochure enviado a ${jid}`);
         } catch (err) {

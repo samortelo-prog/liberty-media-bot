@@ -170,7 +170,7 @@ async function processMessage(sock, message, jid, text) {
       sessionManager.addMessage(jid, 'assistant', greeting);
 
       await notifyOwner(sock, jid, message.pushName, text);
-      startFollowUps(sock, jid);
+      startFollowUps(sock, jid, { isFirstMessage: true });
       return;
     }
 

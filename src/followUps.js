@@ -7,42 +7,70 @@ import { NO_RESPONSE_REMINDER } from './config.js';
 
 const followUpTimers = new Map(); // jid → { timers: [], cancelled: false }
 
-// Un único recordatorio si el lead no responde a una pregunta en 15-20 min.
-// No avanza de paso, no manda link ni PDF, y no se repite si no contesta a este.
-const REMINDER_DELAY = 18 * 60 * 1000; // punto medio de 15-20 min
-const REMINDER_ID = 'no_response_reminder';
+// Si no responde al PRIMER mensaje (el saludo inicial): dos intentos de
+// reenganche, y si tampoco contesta al segundo, no se insiste más.
+const FIRST_MESSAGE_FOLLOW_UPS = [
+  {
+    id: 'portfolio_link',
+    delay: 15 * 60 * 1000, // 15 minutos
+    message:
+      'Te invito a que visites nuestra web para que veas información, testimonios y algunos trabajos que hemos concretado: libertymediastudio.com',
+  },
+  {
+    id: 'ask_availability',
+    delay: 30 * 60 * 1000, // 30 minutos
+    message:
+      'tienes un momento hoy para conversar un poco más sobre tu proyecto?',
+  },
+];
+
+// Si no responde a cualquier OTRA pregunta más adelante (calificación o
+// cierre): un único recordatorio genérico, sin avanzar de paso.
+const GENERIC_FOLLOW_UPS = [
+  {
+    id: 'no_response_reminder',
+    delay: 18 * 60 * 1000, // punto medio de 15-20 min
+    message: NO_RESPONSE_REMINDER,
+  },
+];
 
 /**
- * Programa el único recordatorio de "sin respuesta" para un chat.
- * Se envía como máximo una vez por conversación.
+ * Programa los seguimientos de "sin respuesta" para un chat.
+ * isFirstMessage=true → usa la secuencia de reenganche (portafolio + disponibilidad).
+ * isFirstMessage=false → usa el recordatorio genérico único.
+ * Cada seguimiento se envía como máximo una vez por conversación.
  */
-export function startFollowUps(sock, jid) {
+export function startFollowUps(sock, jid, { isFirstMessage = false } = {}) {
   cancelFollowUps(jid);
 
-  if (sessionManager.hasSentFollowUp(jid, REMINDER_ID)) {
-    console.log(`⏭️  Recordatorio omitido (ya se envió antes en esta conversación)`);
-    return;
-  }
-
+  const sequence = isFirstMessage ? FIRST_MESSAGE_FOLLOW_UPS : GENERIC_FOLLOW_UPS;
   const entry = { timers: [], cancelled: false };
   followUpTimers.set(jid, entry);
 
-  const t = setTimeout(async () => {
-    const current = followUpTimers.get(jid);
-    if (!current || current.cancelled) return;
-    if (sessionManager.hasSentFollowUp(jid, REMINDER_ID)) return; // seguro extra ante condiciones de carrera
-
-    try {
-      await sock.sendMessage(jid, { text: NO_RESPONSE_REMINDER });
-      sessionManager.markFollowUpSent(jid, REMINDER_ID);
-      console.log(`📤 Recordatorio enviado a ${jid}`);
-    } catch (err) {
-      console.error(`❌ Error enviando recordatorio a ${jid}:`, err.message);
+  for (const fu of sequence) {
+    if (sessionManager.hasSentFollowUp(jid, fu.id)) {
+      console.log(`⏭️  Seguimiento "${fu.id}" omitido (ya se envió antes en esta conversación)`);
+      continue;
     }
-  }, REMINDER_DELAY);
 
-  entry.timers.push(t);
-  console.log(`⏱️  Recordatorio programado para ${jid} (${REMINDER_DELAY / 60000} min)`);
+    const t = setTimeout(async () => {
+      const current = followUpTimers.get(jid);
+      if (!current || current.cancelled) return;
+      if (sessionManager.hasSentFollowUp(jid, fu.id)) return; // seguro extra ante condiciones de carrera
+
+      try {
+        await sock.sendMessage(jid, { text: fu.message });
+        sessionManager.markFollowUpSent(jid, fu.id);
+        console.log(`📤 Seguimiento "${fu.id}" enviado a ${jid} (${fu.delay / 60000} min)`);
+      } catch (err) {
+        console.error(`❌ Error enviando seguimiento a ${jid}:`, err.message);
+      }
+    }, fu.delay);
+
+    entry.timers.push(t);
+  }
+
+  console.log(`⏱️  Seguimientos programados para ${jid} (${isFirstMessage ? 'reenganche inicial' : 'recordatorio genérico'})`);
 }
 
 /**

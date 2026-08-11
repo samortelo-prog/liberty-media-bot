@@ -53,34 +53,22 @@ export async function getAIResponse(history = [], userMessage) {
 }
 
 /**
- * Detecta si el cliente quiere agendar una llamada o ya la confirmó.
- * También se activa si la IA ya respondió con el mensaje de confirmación.
+ * Detecta si el cliente muestra intención de llamada/cita: pide que lo llamen,
+ * pregunta si puede agendar, da su número, pregunta cómo contactar directo, o
+ * muestra prisa. Esta es la "regla de prioridad absoluta" del negocio, así que
+ * SIEMPRE se verifica con el clasificador de IA — no solo con palabras clave,
+ * porque frases como "¿puedo agendar una cita?" o "¿podemos coordinar una
+ * llamada?" no calzan con una lista fija de keywords y se estaban colando sin
+ * detectar.
  */
 export async function detectCallScheduled(userMessage) {
+  // Número de teléfono peruano (9 dígitos empezando en 9): señal inequívoca,
+  // no hace falta ni preguntarle a la IA.
+  if (/\b9\d{8}\b/.test(userMessage)) return true;
+
   const hasKeyword = CALL_SCHEDULED_PHRASES.some((phrase) =>
     userMessage.toLowerCase().includes(phrase.toLowerCase())
   );
-
-  // Detectar número de teléfono peruano (9 dígitos empezando en 9)
-  const hasPhone = /\b9\d{8}\b/.test(userMessage);
-
-  // Frases directas de confirmación (multi-palabra: seguro usar .includes)
-  const directConfirmPhrases = [
-    'si me puedes llamar', 'sí me puedes llamar',
-    'si puedes llamarme', 'dale llámame', 'dale llamame',
-    'ok llámame', 'ya puedes llamar',
-    'perfecto llámenme', 'bueno llámenme',
-  ];
-  // Palabras sueltas cortas: SOLO exact-match, porque como substring generan
-  // falsos positivos (ej. "si" aparece dentro de "visita", "asistencia", etc).
-  const directConfirmExact = ['si', 'sí', 'dale', 'ok'];
-
-  const normalized = userMessage.toLowerCase().trim();
-  const directConfirm =
-    directConfirmPhrases.some((p) => normalized.includes(p)) ||
-    directConfirmExact.includes(normalized);
-
-  if (!hasKeyword && !hasPhone && !directConfirm) return false;
 
   try {
     const check = await openai.chat.completions.create({
@@ -88,7 +76,11 @@ export async function detectCallScheduled(userMessage) {
       messages: [
         {
           role: 'system',
-          content: 'Responde SOLO "si" o "no". ¿El cliente está pidiendo o aceptando que le llamen por teléfono?',
+          content:
+            'Responde SOLO "si" o "no". ¿El cliente está mostrando intención de que lo llamen o de agendar una llamada/cita? ' +
+            'Cuenta como "si" cualquiera de estos casos: pide que lo llamen, pregunta si puede agendar/coordinar/programar una cita o llamada, ' +
+            'dice que él puede llamar, pregunta cómo contactar directo, da su número de teléfono, o muestra prisa (está ocupado, manejando, etc). ' +
+            'Si solo está preguntando por precios, servicios, o dando información de su negocio sin relación a coordinar contacto, responde "no".',
         },
         { role: 'user', content: userMessage },
       ],
@@ -98,6 +90,7 @@ export async function detectCallScheduled(userMessage) {
     const answer = check.choices[0]?.message?.content?.trim().toLowerCase();
     return answer === 'si' || answer === 'sí';
   } catch {
-    return hasPhone || directConfirm;
+    // Si falla la IA, al menos nos quedamos con el chequeo de palabras clave.
+    return hasKeyword;
   }
 }

@@ -9,7 +9,7 @@ import { registerMessage, clearBuffer } from './messageBuffer.js';
 import { humanDelay } from './humanDelay.js';
 import { transcribeAudio, isAudioMessage } from './audioTranscriber.js';
 import { existsSync } from 'fs';
-import { OWNER_PHONE, STOP_KEYWORDS, matchesResumeKeyword, CALL_INTENT_MESSAGE } from './config.js';
+import { OWNER_PHONE, STOP_KEYWORDS, matchesResumeKeyword, CALL_INTENT_MESSAGE, CLOSE_MESSAGE, isAffirmativeReply } from './config.js';
 
 // Brochure que se manda después de 2-3 intercambios reales (no en el primer contacto). Súbelo a esta ruta.
 const BROCHURE_PATH = './assets/Desarrollo Web.pdf';
@@ -139,11 +139,20 @@ async function processMessage(sock, message, jid, text) {
   try {
     sessionManager.addMessage(jid, 'user', text);
 
+    // Si el último mensaje del bot fue el cierre fijo (paso 3, "¿deseas que
+    // agendemos una llamada?"), una respuesta afirmativa corta ("sí", "dale",
+    // "ok"...) ya cuenta como intención de llamada, aunque no mencione
+    // "llamar" — el clasificador de IA por sí solo no tiene ese contexto
+    // porque solo evalúa el mensaje suelto.
+    const historyBeforeThis = sessionManager.getHistory(jid);
+    const lastAssistantMsg = [...historyBeforeThis].reverse().find((m) => m.role === 'assistant');
+    const isAffirmativeAfterClose = lastAssistantMsg?.content === CLOSE_MESSAGE && isAffirmativeReply(text);
+
     // Prioridad absoluta, por encima de cualquier otra cosa: si el lead muestra
     // intención de llamada (en cualquier punto, incluso en su primer mensaje),
     // el bot NUNCA confirma horario ni sigue calificando — manda siempre el
     // mismo texto fijo + el PDF, y te notifica a ti para que definas la hora.
-    const callInUserMsg = await detectCallScheduled(text);
+    const callInUserMsg = isAffirmativeAfterClose || (await detectCallScheduled(text));
     if (callInUserMsg) {
       await sendCallIntentReply(sock, jid);
       sessionManager.addMessage(jid, 'assistant', CALL_INTENT_MESSAGE);
@@ -175,20 +184,31 @@ async function processMessage(sock, message, jid, text) {
     }
 
     // Conversación normal (pregunta de calificación, o cierre)
-    console.log(`🤖 Llamando a OpenAI para ${jid}...`);
+    // userMessageCount ya incluye el mensaje actual (se agregó arriba). El
+    // mensaje #1 lo maneja el saludo inicial (return más arriba), así que acá
+    // llegamos desde el #2 en adelante. Cuando el lead ya respondió la
+    // pregunta de calificación (#3), el cierre es SIEMPRE el texto fijo
+    // CLOSE_MESSAGE, no algo generado por la IA — así la oferta de llamada
+    // suena igual siempre y evitamos que la IA la redacte distinto cada vez.
+    const userMessageCount = sessionManager.getHistory(jid).filter((m) => m.role === 'user').length;
+    const isCloseStep = userMessageCount === 3 && !sessionManager.hasSentFollowUp(jid, 'brochure');
 
-    const response = await getAIResponse(session.history, text);
-    console.log(`✅ OpenAI respondió: "${response?.substring(0, 50)}"`);
+    let response;
+    if (isCloseStep) {
+      response = CLOSE_MESSAGE;
+      console.log(`📌 Cierre fijo para ${jid}`);
+    } else {
+      console.log(`🤖 Llamando a OpenAI para ${jid}...`);
+      response = await getAIResponse(session.history, text);
+      console.log(`✅ OpenAI respondió: "${response?.substring(0, 50)}"`);
+    }
     sessionManager.addMessage(jid, 'assistant', response);
 
     await humanDelay(sock, jid, response);
     await sock.sendMessage(jid, { text: response });
     console.log(`📤 Respuesta enviada a ${jid}`);
 
-    // Brochure: se adjunta junto con el mensaje de cierre (después de la pregunta
-    // de calificación adicional: presupuesto o fecha). El texto de cierre ya lo
-    // genera la IA según el SYSTEM_PROMPT, acá solo mandamos el documento.
-    const userMessageCount = sessionManager.getHistory(jid).filter((m) => m.role === 'user').length;
+    // Brochure: se adjunta junto con el mensaje de cierre.
     if (userMessageCount >= 3 && !sessionManager.hasSentFollowUp(jid, 'brochure')) {
       if (existsSync(BROCHURE_PATH)) {
         try {

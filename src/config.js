@@ -31,8 +31,32 @@ export const CALL_SCHEDULED_PHRASES = [
 export const CALL_INTENT_MESSAGE =
   'Un momento, déjame reviso mi agenda y te confirmo en breve a qué hora te podemos llamar. Te voy compartiendo nuestra propuesta de desarrollo web.';
 
+// Mensaje de cierre (paso 3 del flujo), texto fijo y exacto — nunca lo genera
+// la IA, para asegurar que la oferta de llamada siempre se plantea igual.
+export const CLOSE_MESSAGE =
+  'Si desea podemos agendar una llamada para poder darle una propuesta y enviarle una cotización formal.';
+
 // Mensaje fijo de recordatorio único si el lead no responde a una pregunta.
 export const NO_RESPONSE_REMINDER = 'Cualquier duda me avisas, estaremos pendientes!';
+
+// Respuestas afirmativas cortas (sin más contenido) que, si llegan justo
+// después del mensaje de cierre, cuentan como intención de llamada aunque no
+// mencionen "llamar" explícitamente — porque están respondiendo que sí a la
+// pregunta de agendar. Se comparan ya en minúsculas y sin signos de puntuación.
+const AFFIRMATIVE_REPLIES = [
+  'si', 'sí', 'sisi', 'sip', 'dale', 'ok', 'okay', 'oka', 'vale', 'va',
+  'claro', 'claro que si', 'de acuerdo', 'esta bien', 'está bien',
+  'perfecto', 'de una', 'adelante', 'hagamoslo', 'hagámoslo', 'me parece',
+  'me parece bien', 'por favor', 'si porfavor', 'si porfa',
+];
+
+export function isAffirmativeReply(text) {
+  const clean = (text || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[.!¡¿?,]/g, '');
+  return AFFIRMATIVE_REPLIES.includes(clean);
+}
 
 export const SYSTEM_PROMPT = `
 Eres Samuel, de Liberty Media, y escribes por WhatsApp. Tu único objetivo es calificar al lead y abrir la puerta a una llamada — NO eres consultor ni resuelves el proyecto por chat, y NUNCA confirmas horarios de llamada: eso lo decide Sam manualmente.
@@ -56,7 +80,7 @@ FORMATO — obligatorio, sin excepción:
 FLUJO OBLIGATORIO — en este orden, sin saltarte pasos, y sin avanzar de paso sin que el lead haya respondido al anterior:
 1. Mensaje inicial (ver arriba). Espera respuesta.
 2. Si no hay señal de intención de llamada (ver regla de prioridad): UNA sola pregunta de calificación más — presupuesto aproximado o urgencia/fecha en la que necesita el sitio. Nada más en ese mensaje. Espera respuesta.
-3. Cierre: ofrece la posibilidad de una llamada, SIN confirmar horario tú mismo (ejemplo: "te comparto nuestra propuesta base, ¿te gustaría que te llamemos para verlo con calma?"). El sistema adjunta un PDF automáticamente junto con este mensaje — no lo menciones como algo aparte.
+3. Cierre: el sistema manda automáticamente el mensaje fijo de cierre + el PDF en este paso — vos NO generás texto acá, no hace falta que lo repitas ni lo parafrasees en tu respuesta anterior.
 
 PROHIBIDO:
 - Preguntar presupuesto o cualquier cosa "primero" cuando el lead ya pidió llamar o dio su número (ver regla de prioridad).

@@ -6,8 +6,9 @@ import 'dotenv/config';
 import makeWASocket, { DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
 import pino from 'pino';
-import { rmSync, existsSync, mkdirSync, writeFileSync, readdirSync } from 'fs';
+import { rmSync, existsSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from 'fs';
 import { execSync } from 'child_process';
+import { createHash } from 'crypto';
 import { handleMessage, handleOwnerMessage } from './messageHandler.js';
 
 // auth_info puede ser el punto de montaje de un volumen (Railway): se puede
@@ -29,23 +30,34 @@ function clearAuthDirContents(authPath) {
 // Útil cuando el proveedor (ej. Railway) bloquea el handshake inicial del QR
 // por venir de una IP de datacenter: se vincula una vez en una red normal y
 // se sube esa sesión ya autenticada como AUTH_INFO_B64 (tar.gz en base64).
+//
+// El marcador guarda un hash del valor de AUTH_INFO_B64 ya importado (no solo
+// un "sí/no"), así que si en algún momento subes una sesión nueva (ej. tras
+// una corrupción Bad MAC) y actualizas la variable en Railway, el siguiente
+// deploy la detecta automáticamente y la reimporta — sin tener que borrar
+// marcadores a mano ni tocar el startCommand.
 function bootstrapAuthFromEnv(authPath) {
   const b64 = process.env.AUTH_INFO_B64;
   if (!b64) return;
 
   const markerPath = `${authPath}/.bootstrapped_from_env`;
-  if (existsSync(markerPath)) {
-    console.log('📦 AUTH_INFO_B64 detectado pero ya se restauró antes en este volumen — se ignora para no pisar la sesión viva (puedes borrar la variable en Railway).');
+  const currentHash = createHash('sha256').update(b64).digest('hex');
+
+  let previousHash = null;
+  try { previousHash = readFileSync(markerPath, 'utf8').trim(); } catch (_) {}
+
+  if (previousHash === currentHash) {
+    console.log('📦 AUTH_INFO_B64 sin cambios respecto a la sesión ya restaurada en este volumen — no se reimporta.');
     return;
   }
 
-  console.log('📦 Restaurando sesión desde AUTH_INFO_B64 (sobreescribiendo lo que haya en el volumen)...');
+  console.log('📦 AUTH_INFO_B64 es nuevo o cambió — restaurando sesión (sobreescribiendo lo que haya en el volumen)...');
   try {
     clearAuthDirContents(authPath); // limpiar cualquier sesión vieja/inválida
     const tarPath = '/tmp/auth_info_bootstrap.tar.gz';
     writeFileSync(tarPath, Buffer.from(b64, 'base64'));
     execSync(`tar -xzf ${tarPath} -C ${process.cwd()}`);
-    writeFileSync(markerPath, new Date().toISOString());
+    writeFileSync(markerPath, currentHash);
     console.log('✅ Sesión restaurada desde AUTH_INFO_B64.');
   } catch (err) {
     console.error('❌ Error restaurando sesión desde AUTH_INFO_B64:', err.message);

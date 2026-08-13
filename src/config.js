@@ -18,6 +18,15 @@ export function matchesResumeKeyword(text) {
   return RESUME_KEYWORDS_REGEX.test(text || '');
 }
 
+// Detecta si el cliente mandó un link (para que veamos su página, redes,
+// etc.). En ese caso el bot no debe responder nada — se pausa el chat
+// completamente y Sam responde manualmente.
+const URL_REGEX = /(https?:\/\/[^\s]+)|(\bwww\.[^\s]+)|(\b[a-z0-9-]+\.(com|pe|net|org|io|co|shop|store|site|xyz|info|app)(\/[^\s]*)?\b)/i;
+
+export function containsLink(text) {
+  return URL_REGEX.test(text || '');
+}
+
 export const CALL_SCHEDULED_PHRASES = [
   'puedes llamarme', 'llámame', 'llamame', 'me llamas',
   'disponible a las', 'disponible hoy', 'pueden llamarme',

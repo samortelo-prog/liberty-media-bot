@@ -9,7 +9,7 @@ import { registerMessage, clearBuffer } from './messageBuffer.js';
 import { humanDelay } from './humanDelay.js';
 import { transcribeAudio, isAudioMessage } from './audioTranscriber.js';
 import { existsSync } from 'fs';
-import { OWNER_PHONE, STOP_KEYWORDS, matchesResumeKeyword, CALL_INTENT_MESSAGE, CLOSE_MESSAGE, isAffirmativeReply } from './config.js';
+import { OWNER_PHONE, STOP_KEYWORDS, matchesResumeKeyword, CALL_INTENT_MESSAGE, CLOSE_MESSAGE, isAffirmativeReply, containsLink } from './config.js';
 
 // Brochure que se manda después de 2-3 intercambios reales (no en el primer contacto). Súbelo a esta ruta.
 const BROCHURE_PATH = './assets/Desarrollo Web.pdf';
@@ -148,6 +148,19 @@ async function processMessage(sock, message, jid, text) {
 
   try {
     sessionManager.addMessage(jid, 'user', text);
+
+    // Prioridad máxima, incluso por encima de la intención de llamada: si el
+    // cliente manda un link (para que veamos su página, redes, etc.), el bot
+    // NO responde nada — se pausa el chat completamente y te avisa para que
+    // respondas tú directamente.
+    if (containsLink(text)) {
+      sessionManager.setStarted(jid);
+      sessionManager.setMode(jid, 'paused');
+      cancelFollowUps(jid);
+      await notifyOwnerLinkReceived(sock, jid, message.pushName, text);
+      console.log(`🔗 Link recibido de ${jid}, chat pausado a la espera de que respondas`);
+      return;
+    }
 
     // Si el último mensaje del bot fue el cierre fijo (paso 3, "¿deseas que
     // agendemos una llamada?"), una respuesta afirmativa corta ("sí", "dale",
@@ -302,6 +315,26 @@ async function notifyOwnerCallScheduled(sock, clientJid, clientName, clientMessa
     });
   } catch (err) {
     console.error('⚠️ No se pudo notificar la cita al dueño:', err.message);
+  }
+}
+
+// ── Notificar al dueño que un cliente mandó un link (chat pausado) ──
+async function notifyOwnerLinkReceived(sock, clientJid, clientName, clientMessage) {
+  if (!OWNER_PHONE) return;
+  const ownerJid = `${OWNER_PHONE}@s.whatsapp.net`;
+  const clientNumber = clientJid.replace('@s.whatsapp.net', '');
+  const name = clientName || 'Sin nombre';
+  try {
+    await sock.sendMessage(ownerJid, {
+      text:
+        `🔗 Cliente envió un link\n\n` +
+        `👤 ${name}\n` +
+        `📞 wa.me/${clientNumber}\n` +
+        `💬 "${clientMessage}"\n\n` +
+        `El bot está pausado en este chat — respóndele tú directamente. Escribe "bot" ahí para reactivarlo.`,
+    });
+  } catch (err) {
+    console.error('⚠️ No se pudo notificar el link al dueño:', err.message);
   }
 }
 

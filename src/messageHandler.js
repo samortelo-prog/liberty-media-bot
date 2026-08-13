@@ -123,10 +123,20 @@ export async function handleMessage(sock, message) {
 // (dos saludos, dos respuestas, etc).
 const processingJids = new Set();
 
+// Si llega un mensaje nuevo del cliente MIENTRAS ya se está procesando el
+// anterior (algo común: el bot tarda 30+ segundos en responder por el delay
+// humano, y el cliente escribe algo más en ese rato), antes se descartaba en
+// silencio y nunca se respondía. Ahora se encola y se procesa apenas termina
+// el mensaje en curso, en vez de perderse.
+const pendingWhileProcessing = new Map(); // jid → { message, text }
+
 // ── Procesa el mensaje final acumulado ──
 async function processMessage(sock, message, jid, text) {
   if (processingJids.has(jid)) {
-    console.log(`⏭️  Ya hay un mensaje en proceso para ${jid}, se descarta este para evitar carrera`);
+    console.log(`⏳ [${jid}] Ocupado procesando otro mensaje, se encola: "${text}"`);
+    const prev = pendingWhileProcessing.get(jid);
+    const mergedText = prev ? `${prev.text} ${text}` : text;
+    pendingWhileProcessing.set(jid, { message, text: mergedText });
     return;
   }
   processingJids.add(jid);
@@ -239,6 +249,15 @@ async function processMessage(sock, message, jid, text) {
     } catch (_) {}
   } finally {
     processingJids.delete(jid);
+
+    // Si llegó algo mientras estábamos ocupados, procesarlo ahora.
+    const queued = pendingWhileProcessing.get(jid);
+    if (queued) {
+      pendingWhileProcessing.delete(jid);
+      processMessage(sock, queued.message, jid, queued.text).catch((err) =>
+        console.error(`❌ Error procesando mensaje en cola para ${jid}:`, err.message)
+      );
+    }
   }
 }
 

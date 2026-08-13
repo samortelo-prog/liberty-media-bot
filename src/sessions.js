@@ -7,11 +7,14 @@ import Database from 'better-sqlite3';
 import { mkdirSync, existsSync } from 'fs';
 import { dirname } from 'path';
 
-// Base de datos en el volumen de Railway (mismo lugar que auth_info)
-// Solo usamos la ruta de Railway (/app/...) si realmente existe ese volumen;
-// si no (por ejemplo corriendo en local con NODE_ENV=production en .env),
-// usamos una ruta local para evitar el error "directory does not exist".
-const DB_PATH = (process.env.NODE_ENV === 'production' && existsSync('/app'))
+// Base de datos en el volumen de Railway (mismo lugar que auth_info).
+// Antes esto dependía de NODE_ENV === 'production', pero esa variable no
+// siempre está seteada en Railway — si no lo está, la base de datos caía en
+// el filesystem efímero del contenedor y se perdía TODO el estado (modo
+// pausado, seguimientos ya enviados, historial) en cada redeploy. Ahora se
+// detecta directamente si existe la carpeta del volumen (auth_info), sin
+// depender de ninguna variable de entorno.
+const DB_PATH = existsSync('/app/auth_info')
   ? '/app/auth_info/sessions.db'
   : './sessions.db';
 

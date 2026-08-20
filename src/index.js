@@ -168,9 +168,19 @@ async function startBot() {
         console.log('🔄 Reconectando en 5 segundos...');
         setTimeout(startBot, 5000);
       } else {
-        console.log('🔒 Sesión cerrada. Borrando credenciales inválidas para generar un QR nuevo...');
-        try { clearAuthDirContents(authPath); } catch (_) {}
-        process.exit(1);
+        // 401 = WhatsApp cerró la sesión (la marcó inválida). Antes acá se
+        // borraba auth_info y se hacía process.exit(1), lo cual con la
+        // política de reinicio de Railway generaba un reinicio inmediato —
+        // y como el marcador de bootstrap también se borraba, cada reinicio
+        // reimportaba el MISMO AUTH_INFO_B64 (ya inválido) y volvía a fallar
+        // al instante. Resultado: decenas de intentos de conexión por minuto
+        // contra los servidores de WhatsApp con una sesión muerta, que es
+        // justo el patrón que hace que WhatsApp termine bloqueando la IP.
+        // Ahora simplemente nos quedamos quietos: no reintentamos, no
+        // borramos nada, y el proceso sigue vivo (para que Railway no lo
+        // reinicie) a la espera de que subas una sesión nueva a mano.
+        console.log('🔒 Sesión cerrada por WhatsApp (401). Esta sesión ya no sirve.');
+        console.log('⏸️  No se reintenta ni se borra nada, para no seguir golpeando a WhatsApp. Hay que vincular una sesión nueva (ver AUTH_INFO_B64) y redesplegar.');
       }
     }
 

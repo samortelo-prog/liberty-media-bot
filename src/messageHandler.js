@@ -9,7 +9,7 @@ import { registerMessage, clearBuffer } from './messageBuffer.js';
 import { humanDelay } from './humanDelay.js';
 import { transcribeAudio, isAudioMessage } from './audioTranscriber.js';
 import { existsSync } from 'fs';
-import { OWNER_PHONE, STOP_KEYWORDS, matchesResumeKeyword, CALL_INTENT_MESSAGE, CLOSE_MESSAGE, isAffirmativeReply, containsLink } from './config.js';
+import { OWNER_PHONE, STOP_KEYWORDS, matchesResumeKeyword, CALL_INTENT_MESSAGE, CLOSE_MESSAGE, QUALIFYING_MESSAGE, isAffirmativeReply, containsLink } from './config.js';
 
 // Brochure que se manda después de 2-3 intercambios reales (no en el primer contacto). Súbelo a esta ruta.
 const BROCHURE_PATH = './assets/Desarrollo Web.pdf';
@@ -208,16 +208,19 @@ async function processMessage(sock, message, jid, text) {
 
     // Conversación normal (pregunta de calificación, o cierre)
     // userMessageCount ya incluye el mensaje actual (se agregó arriba). El
-    // mensaje #1 lo maneja el saludo inicial (return más arriba), así que acá
-    // llegamos desde el #2 en adelante. Cuando el lead ya respondió la
-    // pregunta de calificación (#3), el cierre es SIEMPRE el texto fijo
-    // CLOSE_MESSAGE, no algo generado por la IA — así la oferta de llamada
-    // suena igual siempre y evitamos que la IA la redacte distinto cada vez.
+    // mensaje #1 lo maneja el saludo inicial (return más arriba). El #2 y el
+    // #3 ahora son SIEMPRE texto fijo (QUALIFYING_MESSAGE y CLOSE_MESSAGE),
+    // nunca generado por la IA — así no hay riesgo de que invente preguntas
+    // de más (presupuesto, plazos repetidos, etc.) o rompa el formato. Recién
+    // de ahí en adelante, si el lead sigue escribiendo, responde la IA
+    // siguiendo las reglas del SYSTEM_PROMPT (precio, portafolio, CTA...).
     const userMessageCount = sessionManager.getHistory(jid).filter((m) => m.role === 'user').length;
-    const isCloseStep = userMessageCount === 3 && !sessionManager.hasSentFollowUp(jid, 'brochure');
 
     let response;
-    if (isCloseStep) {
+    if (userMessageCount === 2) {
+      response = QUALIFYING_MESSAGE;
+      console.log(`📌 Pregunta de calificación fija para ${jid}`);
+    } else if (userMessageCount === 3) {
       response = CLOSE_MESSAGE;
       console.log(`📌 Cierre fijo para ${jid}`);
     } else {
@@ -231,23 +234,10 @@ async function processMessage(sock, message, jid, text) {
     await sock.sendMessage(jid, { text: response });
     console.log(`📤 Respuesta enviada a ${jid}`);
 
-    // Brochure: se adjunta junto con el mensaje de cierre.
-    if (userMessageCount >= 3 && !sessionManager.hasSentFollowUp(jid, 'brochure')) {
-      if (existsSync(BROCHURE_PATH)) {
-        try {
-          await sock.sendMessage(jid, {
-            document: { url: BROCHURE_PATH },
-            fileName: 'Desarrollo Web - Liberty Media.pdf',
-            mimetype: 'application/pdf',
-          });
-          console.log(`📄 Brochure enviado a ${jid}`);
-        } catch (err) {
-          console.error(`⚠️ No se pudo enviar el brochure a ${jid}:`, err.message);
-        }
-      } else {
-        console.log(`⏭️  Brochure omitido (no existe ${BROCHURE_PATH})`);
-      }
-      sessionManager.markFollowUpSent(jid, 'brochure');
+    // Brochure: se adjunta junto con el mensaje de cierre, una sola vez por
+    // conversación (sendBrochureIfNeeded revisa el flag antes de mandar).
+    if (userMessageCount >= 3) {
+      await sendBrochureIfNeeded(sock, jid);
     }
 
     startFollowUps(sock, jid);
@@ -274,13 +264,13 @@ async function processMessage(sock, message, jid, text) {
   }
 }
 
-// ── Respuesta fija (texto exacto, nunca generado por IA) + PDF cuando el
-// lead muestra intención de llamada ──
-async function sendCallIntentReply(sock, jid) {
-  await humanDelay(sock, jid, CALL_INTENT_MESSAGE);
-  await sock.sendMessage(jid, { text: CALL_INTENT_MESSAGE });
-  console.log(`📤 Mensaje de intención de llamada enviado a ${jid}`);
-
+// ── Envía el brochure UNA sola vez por conversación. Antes cada llamador
+// (cierre, intención de llamada) lo mandaba por su cuenta sin fijarse si ya
+// se había mandado antes — eso causaba que a veces se enviara el PDF dos
+// veces (ej. cierre a los 3 mensajes, y de nuevo si después dicen "sí" o
+// muestran intención de llamada). Ahora todo pasa por acá. ──
+async function sendBrochureIfNeeded(sock, jid) {
+  if (sessionManager.hasSentFollowUp(jid, 'brochure')) return;
   if (existsSync(BROCHURE_PATH)) {
     try {
       await sock.sendMessage(jid, {
@@ -288,7 +278,7 @@ async function sendCallIntentReply(sock, jid) {
         fileName: 'Desarrollo Web - Liberty Media.pdf',
         mimetype: 'application/pdf',
       });
-      console.log(`📄 Brochure enviado a ${jid} (intención de llamada)`);
+      console.log(`📄 Brochure enviado a ${jid}`);
     } catch (err) {
       console.error(`⚠️ No se pudo enviar el brochure a ${jid}:`, err.message);
     }
@@ -296,6 +286,15 @@ async function sendCallIntentReply(sock, jid) {
     console.log(`⏭️  Brochure omitido (no existe ${BROCHURE_PATH})`);
   }
   sessionManager.markFollowUpSent(jid, 'brochure');
+}
+
+// ── Respuesta fija (texto exacto, nunca generado por IA) + PDF cuando el
+// lead muestra intención de llamada ──
+async function sendCallIntentReply(sock, jid) {
+  await humanDelay(sock, jid, CALL_INTENT_MESSAGE);
+  await sock.sendMessage(jid, { text: CALL_INTENT_MESSAGE });
+  console.log(`📤 Mensaje de intención de llamada enviado a ${jid}`);
+  await sendBrochureIfNeeded(sock, jid);
 }
 
 // ── Notificar al dueño que hay que confirmar una cita/llamada ──

@@ -40,6 +40,11 @@ export const CALL_SCHEDULED_PHRASES = [
 export const CALL_INTENT_MESSAGE =
   'Un momento, déjame reviso mi agenda y te confirmo en breve a qué hora te podemos llamar. Te voy compartiendo nuestra propuesta de desarrollo web.';
 
+// Pregunta de calificación (paso 2 del flujo), texto fijo — nunca lo genera
+// la IA, para que nunca pregunte presupuesto ni repita/varíe la pregunta.
+export const QUALIFYING_MESSAGE =
+  '¿Tienes algún plazo o fecha en mente para tener tu web lista?';
+
 // Mensaje de cierre (paso 3 del flujo), texto fijo y exacto — nunca lo genera
 // la IA, para asegurar que la oferta de llamada siempre se plantea igual.
 export const CLOSE_MESSAGE =
@@ -88,8 +93,8 @@ FORMATO — obligatorio, sin excepción:
 
 FLUJO OBLIGATORIO — en este orden, sin saltarte pasos, y sin avanzar de paso sin que el lead haya respondido al anterior:
 1. Mensaje inicial (ver arriba). Espera respuesta.
-2. Si no hay señal de intención de llamada (ver regla de prioridad): UNA sola pregunta de calificación más sobre urgencia/fecha en la que necesita el sitio (NUNCA sobre presupuesto — ver PROHIBIDO). Nada más en ese mensaje. Espera respuesta.
-3. Cierre: el sistema manda automáticamente el mensaje fijo de cierre + el PDF en este paso — vos NO generás texto acá, no hace falta que lo repitas ni lo parafrasees en tu respuesta anterior.
+2. El sistema manda automáticamente la pregunta de calificación fija (plazo/fecha) — vos NO generás texto acá.
+3. Cierre: el sistema manda automáticamente el mensaje fijo de cierre + el PDF en este paso — vos NO generás texto acá tampoco.
 
 PROHIBIDO:
 - Preguntar presupuesto, bajo cualquier circunstancia. Nunca es la pregunta de calificación del paso 2 ni se pregunta "primero" cuando el lead ya pidió llamar o dio su número (ver regla de prioridad).

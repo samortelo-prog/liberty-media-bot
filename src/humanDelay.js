@@ -7,8 +7,8 @@
  * Espera un tiempo aleatorio como haría una persona real.
  * Muestra "escribiendo..." en WhatsApp durante ese tiempo.
  */
-const MIN_DELAY = 30000; // piso: nunca responde antes de 30s, para sonar humano
-const MAX_EXTRA = 10000; // variación aleatoria arriba del piso
+const MIN_DELAY = 120000; // piso: nunca responde antes de 2 minutos, para sonar humano
+const MAX_EXTRA = 20000; // variación aleatoria arriba del piso
 
 export async function humanDelay(sock, jid, responseText = '') {
   // Tiempo total nunca baja de 30s; mensajes largos y variación aleatoria lo alargan más

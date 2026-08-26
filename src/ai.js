@@ -53,18 +53,24 @@ export async function getAIResponse(history = [], userMessage) {
 }
 
 /**
- * Detecta si el cliente muestra intención de llamada/cita: pide que lo llamen,
- * pregunta si puede agendar, da su número, pregunta cómo contactar directo, o
- * muestra prisa. Esta es la "regla de prioridad absoluta" del negocio, así que
- * SIEMPRE se verifica con el clasificador de IA — no solo con palabras clave,
- * porque frases como "¿puedo agendar una cita?" o "¿podemos coordinar una
- * llamada?" no calzan con una lista fija de keywords y se estaban colando sin
- * detectar.
+ * Clasifica el mensaje del cliente en uno de tres tipos, en una sola llamada
+ * a la IA (antes eran dos: una para intención de llamada y esta nueva se
+ * agregó aparte — se combinaron para no duplicar latencia/costo):
+ *
+ * - "llamada": pide que lo llamen, pregunta si puede agendar una cita/llamada,
+ *   da su número, pregunta cómo contactar directo, o muestra prisa. Esta es
+ *   la "regla de prioridad absoluta" del negocio.
+ * - "inusual": el cliente se explaya de más, cuenta algo largo y detallado
+ *   que no se le pidió, se queja, pregunta algo totalmente fuera de tema, o
+ *   en general no es una respuesta puntual a lo que se le preguntó ni algo
+ *   relacionado a agendar. Se pausa el chat y se le avisa a Sam.
+ * - "normal": cualquier otra cosa — respuesta directa a la pregunta hecha, o
+ *   pregunta puntual sobre el servicio (precio, portafolio, etc).
  */
-export async function detectCallScheduled(userMessage) {
-  // Número de teléfono peruano (9 dígitos empezando en 9): señal inequívoca,
-  // no hace falta ni preguntarle a la IA.
-  if (/\b9\d{8}\b/.test(userMessage)) return true;
+export async function classifyMessage(userMessage) {
+  // Número de teléfono peruano (9 dígitos empezando en 9): señal inequívoca
+  // de intención de llamada, no hace falta ni preguntarle a la IA.
+  if (/\b9\d{8}\b/.test(userMessage)) return { callIntent: true, unusual: false };
 
   const hasKeyword = CALL_SCHEDULED_PHRASES.some((phrase) =>
     userMessage.toLowerCase().includes(phrase.toLowerCase())
@@ -77,10 +83,10 @@ export async function detectCallScheduled(userMessage) {
         {
           role: 'system',
           content:
-            'Responde SOLO "si" o "no". ¿El cliente está mostrando intención de que lo llamen o de agendar una llamada/cita? ' +
-            'Cuenta como "si" cualquiera de estos casos: pide que lo llamen, pregunta si puede agendar/coordinar/programar una cita o llamada, ' +
-            'dice que él puede llamar, pregunta cómo contactar directo, da su número de teléfono, o muestra prisa (está ocupado, manejando, etc). ' +
-            'Si solo está preguntando por precios, servicios, o dando información de su negocio sin relación a coordinar contacto, responde "no".',
+            'Eres un clasificador para mensajes de clientes en una conversación de ventas de páginas web por WhatsApp. Responde SOLO con una palabra: "llamada", "inusual", o "normal".\n' +
+            '"llamada": el cliente pide que lo llamen, pregunta si puede agendar/coordinar/programar una cita o llamada, dice que él puede llamar, pregunta cómo contactar directo, da su número de teléfono, o muestra prisa (está ocupado, manejando, etc).\n' +
+            '"inusual": el cliente se explaya mucho de más, cuenta algo largo y detallado sobre su negocio o situación sin que se le haya pedido, se queja, pregunta algo totalmente fuera de tema (no relacionado a su web ni al negocio), o en general no es simplemente una respuesta puntual a lo que se le preguntó ni algo relacionado a agendar.\n' +
+            '"normal": cualquier otra cosa — una respuesta directa (corta o algo más larga, mientras sea sobre lo que se le preguntó) a la pregunta hecha, o una pregunta puntual sobre el servicio (precio, portafolio, tiempos, etc).',
         },
         { role: 'user', content: userMessage },
       ],
@@ -88,9 +94,14 @@ export async function detectCallScheduled(userMessage) {
       temperature: 0,
     });
     const answer = check.choices[0]?.message?.content?.trim().toLowerCase();
-    return answer === 'si' || answer === 'sí';
+    return {
+      callIntent: answer === 'llamada' || answer === '"llamada"',
+      unusual: answer === 'inusual' || answer === '"inusual"',
+    };
   } catch {
-    // Si falla la IA, al menos nos quedamos con el chequeo de palabras clave.
-    return hasKeyword;
+    // Si falla la IA, al menos nos quedamos con el chequeo de palabras clave
+    // para intención de llamada. Para "inusual" no hay fallback — mejor no
+    // pausar de más si la IA no responde.
+    return { callIntent: hasKeyword, unusual: false };
   }
 }

@@ -2,14 +2,14 @@
 // LIBERTY MEDIA - MANEJADOR DE MENSAJES
 // ==========================================
 
-import { getAIResponse, detectCallScheduled } from './ai.js';
+import { getAIResponse, classifyMessage } from './ai.js';
 import { sessionManager } from './sessions.js';
 import { startFollowUps, cancelFollowUps } from './followUps.js';
 import { registerMessage, clearBuffer } from './messageBuffer.js';
 import { humanDelay } from './humanDelay.js';
 import { transcribeAudio, isAudioMessage } from './audioTranscriber.js';
 import { existsSync } from 'fs';
-import { OWNER_PHONE, STOP_KEYWORDS, matchesResumeKeyword, CALL_INTENT_MESSAGE, CLOSE_MESSAGE, QUALIFYING_MESSAGE, isAffirmativeReply, containsLink } from './config.js';
+import { OWNER_PHONE, STOP_KEYWORDS, matchesResumeKeyword, CALL_INTENT_MESSAGE, CLOSE_MESSAGE, GREETING_MESSAGE, QUALIFYING_MESSAGE, isAffirmativeReply, containsLink } from './config.js';
 
 // Brochure que se manda después de 2-3 intercambios reales (no en el primer contacto). Súbelo a esta ruta.
 const BROCHURE_PATH = './assets/Desarrollo Web.pdf';
@@ -175,7 +175,16 @@ async function processMessage(sock, message, jid, text) {
     // intención de llamada (en cualquier punto, incluso en su primer mensaje),
     // el bot NUNCA confirma horario ni sigue calificando — manda siempre el
     // mismo texto fijo + el PDF, y te notifica a ti para que definas la hora.
-    const callInUserMsg = isAffirmativeAfterClose || (await detectCallScheduled(text));
+    // Esto y la detección de "mensaje inusual" van en la misma llamada a la
+    // IA (classifyMessage) para no duplicar latencia/costo.
+    let callInUserMsg = isAffirmativeAfterClose;
+    let isUnusual = false;
+    if (!callInUserMsg) {
+      const classification = await classifyMessage(text);
+      callInUserMsg = classification.callIntent;
+      isUnusual = classification.unusual;
+    }
+
     if (callInUserMsg) {
       await sendCallIntentReply(sock, jid);
       sessionManager.addMessage(jid, 'assistant', CALL_INTENT_MESSAGE);
@@ -187,19 +196,28 @@ async function processMessage(sock, message, jid, text) {
       return;
     }
 
-    // Primer mensaje del cliente → saludo generado por IA (varía cada vez) + notificar al dueño
+    // Mensaje fuera de lo común: el cliente se explaya de más, se queja, o
+    // pregunta/cuenta algo que no tiene nada que ver con una respuesta
+    // puntual o con agendar. El bot no responde nada — se pausa el chat y se
+    // te notifica para que respondas tú.
+    if (isUnusual) {
+      sessionManager.setStarted(jid);
+      sessionManager.setMode(jid, 'paused');
+      cancelFollowUps(jid);
+      await notifyOwnerUnusualMessage(sock, jid, message.pushName, text);
+      console.log(`⚠️ Mensaje inusual de ${jid}, chat pausado a la espera de que respondas`);
+      return;
+    }
+
+    // Primer mensaje del cliente → saludo fijo + notificar al dueño
     if (!session.started) {
       sessionManager.setStarted(jid);
-      console.log(`👋 Generando saludo inicial para ${jid}...`);
 
-      const greeting = await getAIResponse([], text);
-      console.log(`✅ Saludo generado: "${greeting?.substring(0, 60)}"`);
-
-      await humanDelay(sock, jid, greeting);
-      await sock.sendMessage(jid, { text: greeting });
+      await humanDelay(sock, jid, GREETING_MESSAGE);
+      await sock.sendMessage(jid, { text: GREETING_MESSAGE });
       console.log(`📤 Saludo enviado a ${jid}`);
 
-      sessionManager.addMessage(jid, 'assistant', greeting);
+      sessionManager.addMessage(jid, 'assistant', GREETING_MESSAGE);
 
       await notifyOwner(sock, jid, message.pushName, text);
       startFollowUps(sock, jid, { isFirstMessage: true });
@@ -334,6 +352,26 @@ async function notifyOwnerLinkReceived(sock, clientJid, clientName, clientMessag
     });
   } catch (err) {
     console.error('⚠️ No se pudo notificar el link al dueño:', err.message);
+  }
+}
+
+// ── Notificar al dueño que llegó un mensaje fuera de lo común (chat pausado) ──
+async function notifyOwnerUnusualMessage(sock, clientJid, clientName, clientMessage) {
+  if (!OWNER_PHONE) return;
+  const ownerJid = `${OWNER_PHONE}@s.whatsapp.net`;
+  const clientNumber = clientJid.replace('@s.whatsapp.net', '');
+  const name = clientName || 'Sin nombre';
+  try {
+    await sock.sendMessage(ownerJid, {
+      text:
+        `⚠️ Mensaje fuera de lo común\n\n` +
+        `👤 ${name}\n` +
+        `📞 wa.me/${clientNumber}\n` +
+        `💬 "${clientMessage}"\n\n` +
+        `El bot está pausado en este chat — respóndele tú directamente. Escribe "bot" ahí para reactivarlo.`,
+    });
+  } catch (err) {
+    console.error('⚠️ No se pudo notificar el mensaje inusual al dueño:', err.message);
   }
 }
 

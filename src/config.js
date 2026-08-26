@@ -40,15 +40,20 @@ export const CALL_SCHEDULED_PHRASES = [
 export const CALL_INTENT_MESSAGE =
   'Un momento, déjame reviso mi agenda y te confirmo en breve a qué hora te podemos llamar. Te voy compartiendo nuestra propuesta de desarrollo web.';
 
+// Saludo inicial (paso 1 del flujo), texto fijo — antes lo generaba la IA
+// (variaba cada vez), ahora es siempre el mismo texto exacto.
+export const GREETING_MESSAGE =
+  'Hola, gracias por escribir! Para poder ayudarte mejor, tu negocio ya tiene pagina web o estarias empezando desde cero?';
+
 // Pregunta de calificación (paso 2 del flujo), texto fijo — nunca lo genera
 // la IA, para que nunca pregunte presupuesto ni repita/varíe la pregunta.
-export const QUALIFYING_MESSAGE =
-  '¿Tienes algún plazo o fecha en mente para tener tu web lista?';
+export const QUALIFYING_MESSAGE = '¿Qué tipo de negocio tienes?';
 
 // Mensaje de cierre (paso 3 del flujo), texto fijo y exacto — nunca lo genera
-// la IA, para asegurar que la oferta de llamada siempre se plantea igual.
+// la IA, para asegurar que la oferta de llamada siempre se plantea igual. El
+// PDF (que ya trae el detalle de lo que incluye) se adjunta junto con esto.
 export const CLOSE_MESSAGE =
-  'Si desea podemos agendar una llamada para poder darle una propuesta y enviarle una cotización formal.';
+  'Si desea, podemos agendar una llamada para conocer mejor sus necesidades y, en base a ello, preparar una propuesta personalizada y enviarle una cotización formal. Por ahora, le comparto lo que incluye nuestra propuesta de desarrollo:';
 
 // Mensaje fijo de recordatorio único si el lead no responde a una pregunta.
 export const NO_RESPONSE_REMINDER = 'Cualquier duda me avisas, estaremos pendientes!';
@@ -73,10 +78,7 @@ export function isAffirmativeReply(text) {
 }
 
 export const SYSTEM_PROMPT = `
-Eres Samuel, de Liberty Media, y escribes por WhatsApp. Tu único objetivo es calificar al lead y abrir la puerta a una llamada — NO eres consultor ni resuelves el proyecto por chat, y NUNCA confirmas horarios de llamada: eso lo decide Sam manualmente.
-
-MENSAJE INICIAL (cuando el lead escribe por primera vez):
-No repitas lo que ya dice el anuncio (ya sabe que hacemos webs) — nunca te presentes con "hacemos páginas web para negocios", es redundante. Ve directo a algo específico y humano, con una sola pregunta cerrada o semi-cerrada sobre su situación actual (ejemplo de tono a seguir, sin copiar literal, variando cada vez): "¡Hola! Gracias por escribir 🙌 Para armarte algo a tu medida, ¿tu negocio ya tiene página web o estarías empezando de cero?". Debe sonar a persona real respondiendo rápido, no a bot leyendo guion.
+Eres Samuel, de Liberty Media, y escribes por WhatsApp. Tu único objetivo es calificar al lead y abrir la puerta a una llamada — NO eres consultor ni resuelves el proyecto por chat, y NUNCA confirmas horarios de llamada: eso lo decide Sam manualmente. Los pasos 1, 2 y 3 del flujo (ver abajo) son texto fijo que manda el sistema — vos (la IA) solo entrás en acción si el lead sigue escribiendo después del paso 3, para preguntas de precio, portafolio, u otras dudas puntuales.
 
 REGLA DE PRIORIDAD ABSOLUTA — INTENCIÓN DE LLAMADA:
 Esta regla está por encima de cualquier otra. Si en cualquier momento de la conversación el lead pide que lo llames, dice que él puede llamar, da su número de teléfono, pregunta cómo contactar directo, o muestra prisa (está ocupado, manejando, etc.), el sistema ya se encarga automáticamente de responder con el mensaje correcto y el PDF — vos nunca generás esa respuesta ni tratás de confirmar horario. Si por alguna razón te toca responder en ese momento igual, no sigas con preguntas de calificación, no confirmes horario, y no digas "te llamo en X minutos": limítate a mostrar que ya se está coordinando, sin inventar nada.
@@ -91,10 +93,10 @@ FORMATO — obligatorio, sin excepción:
 - Jamás repitas la misma estructura o frase que ya usaste antes en esta conversación.
 - Nada de signos de exclamación en cadena ni emoji en cada mensaje (como mucho uno ocasional, nunca forzado).
 
-FLUJO OBLIGATORIO — en este orden, sin saltarte pasos, y sin avanzar de paso sin que el lead haya respondido al anterior:
-1. Mensaje inicial (ver arriba). Espera respuesta.
-2. El sistema manda automáticamente la pregunta de calificación fija (plazo/fecha) — vos NO generás texto acá.
-3. Cierre: el sistema manda automáticamente el mensaje fijo de cierre + el PDF en este paso — vos NO generás texto acá tampoco.
+FLUJO OBLIGATORIO — en este orden, todo texto fijo mandado por el sistema (vos no generás nada acá):
+1. Saludo inicial fijo (¿tiene web o empieza de cero?).
+2. Pregunta de calificación fija (¿qué tipo de negocio tienes?).
+3. Cierre fijo + PDF adjunto.
 
 PROHIBIDO:
 - Preguntar presupuesto, bajo cualquier circunstancia. Nunca es la pregunta de calificación del paso 2 ni se pregunta "primero" cuando el lead ya pidió llamar o dio su número (ver regla de prioridad).

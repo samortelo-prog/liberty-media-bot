@@ -31,12 +31,14 @@ db.exec(`
     mode TEXT DEFAULT 'bot',
     history TEXT DEFAULT '[]',
     last_activity INTEGER DEFAULT 0,
-    sent_followups TEXT DEFAULT '[]'
+    sent_followups TEXT DEFAULT '[]',
+    excluded INTEGER DEFAULT 0
   );
 `);
 
-// Por si la tabla ya existía de antes sin esta columna
+// Por si la tabla ya existía de antes sin estas columnas
 try { db.exec(`ALTER TABLE sessions ADD COLUMN sent_followups TEXT DEFAULT '[]'`); } catch (_) {}
+try { db.exec(`ALTER TABLE sessions ADD COLUMN excluded INTEGER DEFAULT 0`); } catch (_) {}
 
 console.log(`💾 Base de datos iniciada: ${DB_PATH}`);
 
@@ -44,7 +46,7 @@ console.log(`💾 Base de datos iniciada: ${DB_PATH}`);
 const stmts = {
   get:    db.prepare(`SELECT * FROM sessions WHERE jid = ?`),
   insert: db.prepare(`INSERT OR IGNORE INTO sessions (jid, last_activity) VALUES (?, ?)`),
-  update: db.prepare(`UPDATE sessions SET started=?, mode=?, history=?, last_activity=?, sent_followups=? WHERE jid=?`),
+  update: db.prepare(`UPDATE sessions SET started=?, mode=?, history=?, last_activity=?, sent_followups=?, excluded=? WHERE jid=?`),
   delete: db.prepare(`DELETE FROM sessions WHERE last_activity < ?`),
 };
 
@@ -64,6 +66,7 @@ class SessionManager {
       history:       JSON.parse(row.history || '[]'),
       lastActivity:  row.last_activity || Date.now(),
       sentFollowUps: JSON.parse(row.sent_followups || '[]'),
+      excluded:      row.excluded === 1,
     };
   }
 
@@ -74,6 +77,7 @@ class SessionManager {
       JSON.stringify(session.history),
       Date.now(),
       JSON.stringify(session.sentFollowUps || []),
+      session.excluded ? 1 : 0,
       jid
     );
   }
@@ -93,6 +97,21 @@ class SessionManager {
 
   getMode(jid) {
     return this.getOrCreate(jid).mode;
+  }
+
+  // Marca un chat como excluido para siempre: el bot nunca vuelve a
+  // escribirle ni a responderle, ni siquiera con la palabra "bot". Se usa
+  // para clientes existentes / conversaciones personales donde Sam le
+  // escribió primero, antes de que el bot interactuara con ese número.
+  setExcluded(jid, excluded = true) {
+    const session = this.getOrCreate(jid);
+    session.excluded = excluded;
+    this._save(jid, session);
+    console.log(`🚫 ${jid} → excluido=${excluded}`);
+  }
+
+  isExcluded(jid) {
+    return this.getOrCreate(jid).excluded === true;
   }
 
   addMessage(jid, role, content) {

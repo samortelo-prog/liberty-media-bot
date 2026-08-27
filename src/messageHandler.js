@@ -31,6 +31,20 @@ export async function handleOwnerMessage(sock, message) {
   // Ignorar si el texto es una notificación automática del bot
   if (text.includes('🔔 Nuevo cliente') || text.includes('🤖 Bot reactivado')) return;
 
+  const session = sessionManager.getOrCreate(jid);
+
+  // Si el dueño le escribe primero a un número con el que el bot todavía no
+  // había interactuado (session.started === false), es un cliente existente
+  // o una conversación personal tuya, no un lead nuevo — se excluye para
+  // siempre: el bot nunca la toca, ni con la palabra "bot".
+  if (!session.started && !session.excluded) {
+    sessionManager.setExcluded(jid, true);
+    console.log(`🚫 ${jid} excluido para siempre — le escribiste tú primero, antes de que el bot interactuara`);
+    return;
+  }
+
+  if (session.excluded) return;
+
   // Si el dueño escribe "bot" en el chat, reactiva el bot
   if (matchesResumeKeyword(text)) {
     clearBuffer(jid);
@@ -40,7 +54,6 @@ export async function handleOwnerMessage(sock, message) {
   }
 
   // Cualquier otro mensaje del dueño en chat de cliente → pausar
-  const session = sessionManager.getOrCreate(jid);
   if (session.mode === 'bot') {
     clearBuffer(jid);
     cancelFollowUps(jid);
@@ -54,6 +67,10 @@ export async function handleMessage(sock, message) {
   const jid = message.key.remoteJid;
   const session = sessionManager.getOrCreate(jid);
   const mode = session.mode;
+
+  // Chat excluido para siempre (Sam le escribió primero, antes de que el bot
+  // interactuara) — no se procesa nada, ni se responde, ni se notifica.
+  if (session.excluded) return;
 
   let text = '';
   let isAudio = false;

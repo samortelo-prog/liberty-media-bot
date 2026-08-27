@@ -10,6 +10,7 @@ import { rmSync, existsSync, mkdirSync, writeFileSync, readdirSync, readFileSync
 import { execSync } from 'child_process';
 import { createHash } from 'crypto';
 import { handleMessage, handleOwnerMessage } from './messageHandler.js';
+import { sessionManager } from './sessions.js';
 
 // auth_info puede ser el punto de montaje de un volumen (Railway): se puede
 // vaciar su contenido, pero no borrar la carpeta en sí (da EBUSY).
@@ -123,6 +124,17 @@ async function startBot() {
 
   bootstrapAuthFromEnv(authPath);
 
+  // ── Excluir automáticamente a los contactos/clientes que ya existían en
+  // WhatsApp ANTES de este re-vinculado, para que el bot nunca les mande el
+  // saludo de "lead nuevo". Solo se hace UNA vez por base de datos (el flag
+  // vive en sessions.db, no en un archivo de auth_info — ver sessions.js) —
+  // escuchamos los chats que WhatsApp manda al sincronizar justo después de
+  // conectar, y se los marca a todos como excluidos. Los leads nuevos que
+  // escriban de ahí en adelante no estaban en ese chat list inicial, así que
+  // sí reciben el saludo normalmente.
+  const baselineAlreadyDone = sessionManager.isBaselineExcludeDone();
+  let baselineChatsFound = 0;
+
   const { state, saveCreds } = await useMultiFileAuthState(authPath);
   const { version } = await fetchLatestBaileysVersion();
 
@@ -139,6 +151,19 @@ async function startBot() {
   });
 
   sock.ev.on('creds.update', saveCreds);
+
+  if (!baselineAlreadyDone) {
+    const excludeChatBatch = (chats) => {
+      for (const chat of chats || []) {
+        const jid = chat.id;
+        if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') continue;
+        sessionManager.setExcluded(jid, true);
+        baselineChatsFound++;
+      }
+    };
+    sock.ev.on('chats.upsert', excludeChatBatch);
+    sock.ev.on('messaging-history.set', ({ chats }) => excludeChatBatch(chats));
+  }
 
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
@@ -188,6 +213,20 @@ async function startBot() {
       console.log('✅ Bot conectado a WhatsApp!');
       console.log(`📞 Número: ${sock.user?.id}`);
       console.log('💬 Listo para recibir mensajes...\n');
+
+      if (!baselineAlreadyDone) {
+        // Dar 20s para que terminen de llegar los chats existentes antes de
+        // cerrar la ventana — de ahí en adelante ya no se excluye nada más
+        // automáticamente (solo con la regla de "Sam escribió primero").
+        setTimeout(() => {
+          try {
+            sessionManager.setBaselineExcludeDone();
+            console.log(`🚫 ${baselineChatsFound} chats existentes excluidos automáticamente (no recibirán el saludo de lead nuevo).`);
+          } catch (err) {
+            console.error('⚠️ No se pudo guardar el marcador de exclusión inicial:', err.message);
+          }
+        }, 20000);
+      }
     }
   });
 

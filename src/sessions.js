@@ -40,6 +40,19 @@ db.exec(`
 try { db.exec(`ALTER TABLE sessions ADD COLUMN sent_followups TEXT DEFAULT '[]'`); } catch (_) {}
 try { db.exec(`ALTER TABLE sessions ADD COLUMN excluded INTEGER DEFAULT 0`); } catch (_) {}
 
+// Tabla chica de "meta" (clave-valor) para flags únicos de esta base de
+// datos en particular — por ejemplo, si ya se hizo la exclusión automática
+// de chats existentes al vincular. A propósito NO usamos un archivo dentro
+// de auth_info para esto: esa carpeta se empaqueta y sube a Railway como
+// AUTH_INFO_B64, así que un marcador ahí viajaría con la sesión y Railway
+// pensaría que el trabajo ya se hizo sin haberlo hecho de verdad ahí. La
+// base de datos, en cambio, es independiente entre tu Mac y Railway.
+db.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`);
+const metaStmts = {
+  get: db.prepare(`SELECT value FROM meta WHERE key = ?`),
+  set: db.prepare(`INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`),
+};
+
 console.log(`💾 Base de datos iniciada: ${DB_PATH}`);
 
 // Statements preparados para mejor rendimiento
@@ -112,6 +125,16 @@ class SessionManager {
 
   isExcluded(jid) {
     return this.getOrCreate(jid).excluded === true;
+  }
+
+  // Flag de "ya se hizo la exclusión automática de chats existentes en este
+  // vinculado" — ver comentario arriba de por qué vive en la base de datos.
+  isBaselineExcludeDone() {
+    return metaStmts.get.get('baseline_excluded_done')?.value === '1';
+  }
+
+  setBaselineExcludeDone() {
+    metaStmts.set.run('baseline_excluded_done', '1');
   }
 
   addMessage(jid, role, content) {

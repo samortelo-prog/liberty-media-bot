@@ -12,13 +12,13 @@ const followUpTimers = new Map(); // jid → { timers: [], cancelled: false }
 const FIRST_MESSAGE_FOLLOW_UPS = [
   {
     id: 'portfolio_link',
-    delay: 15 * 60 * 1000, // 15 minutos
+    delay: 10 * 60 * 1000, // 10 minutos
     message:
       'Te invito a que visites nuestra web para que veas información, testimonios y algunos trabajos que hemos concretado: libertymediastudio.com',
   },
   {
     id: 'ask_availability',
-    delay: 30 * 60 * 1000, // 30 minutos
+    delay: 20 * 60 * 1000, // 20 minutos
     message:
       'tienes un momento hoy para conversar un poco más sobre tu proyecto?',
   },

@@ -246,6 +246,17 @@ async function processMessage(sock, message, jid, text) {
       await humanDelay(sock, jid, response);
       await sock.sendMessage(jid, { text: response });
       console.log(`📤 Respuesta enviada a ${jid}`);
+
+      // Si la respuesta ya incluyó el link del portafolio, el seguimiento de
+      // "no respondió al primer mensaje" que reenvía ese mismo link (a los 15
+      // min) ya no tiene sentido — se marca como enviado para que el sistema
+      // de seguimientos salte directo al siguiente (la pregunta de
+      // disponibilidad a los 30 min).
+      if (response.toLowerCase().includes('libertymediastudio.com')) {
+        sessionManager.markFollowUpSent(jid, 'portfolio_link');
+        console.log(`⏭️  Seguimiento "portfolio_link" saltado para ${jid} (ya se compartió el link)`);
+      }
+
       if (wasFirstMessage) {
         await notifyOwner(sock, jid, message.pushName, text);
         startFollowUps(sock, jid, { isFirstMessage: true });

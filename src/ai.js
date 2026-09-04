@@ -90,8 +90,8 @@ export async function classifyMessage(userMessage) {
             'Eres un clasificador para mensajes de clientes en una conversación de ventas de páginas web por WhatsApp. Responde SOLO con una palabra: "llamada", "inusual", "pregunta", o "normal".\n' +
             '"llamada": el cliente pide que lo llamen, pregunta si puede agendar/coordinar/programar una cita o llamada, dice que él puede llamar, pregunta cómo contactar directo, da su número de teléfono, o muestra prisa (está ocupado, manejando, etc).\n' +
             '"inusual": el cliente se explaya mucho de más, cuenta algo largo y detallado sobre su negocio o situación sin que se le haya pedido, se queja, pregunta algo totalmente fuera de tema (no relacionado a su web ni al negocio), o en general no es simplemente una respuesta puntual a lo que se le preguntó ni algo relacionado a agendar.\n' +
-            '"pregunta": el cliente pregunta algo puntual sobre el servicio — portafolio/ejemplos de trabajos, precio, funcionalidades, tiempos de entrega, qué incluye, etc. — en vez de (o además de) simplemente contestar lo que se le preguntó.\n' +
-            '"normal": una respuesta directa a la pregunta hecha (corta o algo más larga, mientras sea sobre lo que se le preguntó), o un saludo/apertura genérica sin pregunta puntual.',
+            '"pregunta": el cliente pregunta algo CONCRETO y ESPECÍFICO sobre el servicio — pide ver el portafolio/ejemplos de trabajos, pregunta el precio o cuánto cuesta, pregunta por una funcionalidad puntual, tiempos de entrega exactos, o qué incluye exactamente. NO clasifiques como "pregunta" una apertura genérica de anuncio como "quiero más información", "más info por favor", "cuéntame más", "hola, me interesa" — esas van en "normal", porque no piden nada específico, solo abren la conversación.\n' +
+            '"normal": una respuesta directa a la pregunta hecha (corta o algo más larga, mientras sea sobre lo que se le preguntó), o un saludo/apertura genérica sin pedir algo puntual (incluye "quiero información", "más info", "me interesa", etc.).',
         },
         { role: 'user', content: userMessage },
       ],

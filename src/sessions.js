@@ -32,13 +32,15 @@ db.exec(`
     history TEXT DEFAULT '[]',
     last_activity INTEGER DEFAULT 0,
     sent_followups TEXT DEFAULT '[]',
-    excluded INTEGER DEFAULT 0
+    excluded INTEGER DEFAULT 0,
+    step INTEGER DEFAULT 0
   );
 `);
 
 // Por si la tabla ya existía de antes sin estas columnas
 try { db.exec(`ALTER TABLE sessions ADD COLUMN sent_followups TEXT DEFAULT '[]'`); } catch (_) {}
 try { db.exec(`ALTER TABLE sessions ADD COLUMN excluded INTEGER DEFAULT 0`); } catch (_) {}
+try { db.exec(`ALTER TABLE sessions ADD COLUMN step INTEGER DEFAULT 0`); } catch (_) {}
 
 // Tabla chica de "meta" (clave-valor) para flags únicos de esta base de
 // datos en particular — por ejemplo, si ya se hizo la exclusión automática
@@ -59,7 +61,7 @@ console.log(`💾 Base de datos iniciada: ${DB_PATH}`);
 const stmts = {
   get:    db.prepare(`SELECT * FROM sessions WHERE jid = ?`),
   insert: db.prepare(`INSERT OR IGNORE INTO sessions (jid, last_activity) VALUES (?, ?)`),
-  update: db.prepare(`UPDATE sessions SET started=?, mode=?, history=?, last_activity=?, sent_followups=?, excluded=? WHERE jid=?`),
+  update: db.prepare(`UPDATE sessions SET started=?, mode=?, history=?, last_activity=?, sent_followups=?, excluded=?, step=? WHERE jid=?`),
   delete: db.prepare(`DELETE FROM sessions WHERE last_activity < ?`),
 };
 
@@ -80,6 +82,7 @@ class SessionManager {
       lastActivity:  row.last_activity || Date.now(),
       sentFollowUps: JSON.parse(row.sent_followups || '[]'),
       excluded:      row.excluded === 1,
+      step:          row.step || 0,
     };
   }
 
@@ -91,6 +94,7 @@ class SessionManager {
       Date.now(),
       JSON.stringify(session.sentFollowUps || []),
       session.excluded ? 1 : 0,
+      session.step || 0,
       jid
     );
   }
@@ -98,6 +102,23 @@ class SessionManager {
   setStarted(jid) {
     const session = this.getOrCreate(jid);
     session.started = true;
+    this._save(jid, session);
+  }
+
+  // Paso del flujo fijo en el que está el chat: 0 = todavía no se le mandó el
+  // saludo, 1 = ya recibió el saludo (falta la pregunta de calificación), 2 =
+  // ya recibió la pregunta de calificación (falta el cierre), 3 = ya recibió
+  // el cierre (de ahí en adelante todo es conversación libre con la IA).
+  // Se avanza SOLO cuando de verdad se manda el mensaje fijo de ese paso —
+  // si el cliente pregunta algo puntual en el medio, se responde esa
+  // pregunta sin avanzar de paso, así no se salta el flujo por eso.
+  getStep(jid) {
+    return this.getOrCreate(jid).step || 0;
+  }
+
+  setStep(jid, step) {
+    const session = this.getOrCreate(jid);
+    session.step = step;
     this._save(jid, session);
   }
 

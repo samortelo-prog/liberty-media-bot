@@ -192,14 +192,16 @@ async function processMessage(sock, message, jid, text) {
     // intención de llamada (en cualquier punto, incluso en su primer mensaje),
     // el bot NUNCA confirma horario ni sigue calificando — manda siempre el
     // mismo texto fijo + el PDF, y te notifica a ti para que definas la hora.
-    // Esto y la detección de "mensaje inusual" van en la misma llamada a la
-    // IA (classifyMessage) para no duplicar latencia/costo.
+    // Esto, "mensaje inusual", y "pregunta puntual" van en la misma llamada a
+    // la IA (classifyMessage) para no multiplicar latencia/costo.
     let callInUserMsg = isAffirmativeAfterClose;
     let isUnusual = false;
+    let isQuestion = false;
     if (!callInUserMsg) {
       const classification = await classifyMessage(text);
       callInUserMsg = classification.callIntent;
       isUnusual = classification.unusual;
+      isQuestion = classification.isQuestion;
     }
 
     if (callInUserMsg) {
@@ -226,9 +228,41 @@ async function processMessage(sock, message, jid, text) {
       return;
     }
 
-    // Primer mensaje del cliente → saludo fijo + notificar al dueño
-    if (!session.started) {
+    const wasFirstMessage = !session.started;
+
+    // Pregunta puntual (portafolio, precio, funcionalidades, etc.) en vez de
+    // (o además de) contestar lo que se le preguntó — en CUALQUIER paso,
+    // incluso el primer mensaje. Antes el bot ignoraba esto y mandaba el
+    // texto fijo del paso igual (ej. alguien pedía el portafolio y el bot
+    // respondía el saludo genérico). Ahora responde la IA con las reglas del
+    // SYSTEM_PROMPT (que ya sabe compartir el link, dar el precio, etc.), y
+    // el paso del flujo NO avanza — así la próxima respuesta real sigue
+    // donde se quedó.
+    if (isQuestion) {
+      if (wasFirstMessage) sessionManager.setStarted(jid);
+      console.log(`❓ Pregunta puntual de ${jid}, respondiendo con IA sin avanzar de paso`);
+      const response = await getAIResponse(session.history, text);
+      sessionManager.addMessage(jid, 'assistant', response);
+      await humanDelay(sock, jid, response);
+      await sock.sendMessage(jid, { text: response });
+      console.log(`📤 Respuesta enviada a ${jid}`);
+      if (wasFirstMessage) {
+        await notifyOwner(sock, jid, message.pushName, text);
+        startFollowUps(sock, jid, { isFirstMessage: true });
+      } else {
+        startFollowUps(sock, jid);
+      }
+      return;
+    }
+
+    // De acá en adelante, el mensaje es una respuesta directa (o un saludo
+    // genérico) — avanza el flujo fijo según el paso en el que esté el chat.
+    const step = sessionManager.getStep(jid);
+
+    if (step === 0) {
+      // Paso 1: saludo fijo + notificar al dueño
       sessionManager.setStarted(jid);
+      sessionManager.setStep(jid, 1);
 
       await humanDelay(sock, jid, GREETING_MESSAGE);
       await sock.sendMessage(jid, { text: GREETING_MESSAGE });
@@ -241,22 +275,14 @@ async function processMessage(sock, message, jid, text) {
       return;
     }
 
-    // Conversación normal (pregunta de calificación, o cierre)
-    // userMessageCount ya incluye el mensaje actual (se agregó arriba). El
-    // mensaje #1 lo maneja el saludo inicial (return más arriba). El #2 y el
-    // #3 ahora son SIEMPRE texto fijo (QUALIFYING_MESSAGE y CLOSE_MESSAGE),
-    // nunca generado por la IA — así no hay riesgo de que invente preguntas
-    // de más (presupuesto, plazos repetidos, etc.) o rompa el formato. Recién
-    // de ahí en adelante, si el lead sigue escribiendo, responde la IA
-    // siguiendo las reglas del SYSTEM_PROMPT (precio, portafolio, CTA...).
-    const userMessageCount = sessionManager.getHistory(jid).filter((m) => m.role === 'user').length;
-
     let response;
-    if (userMessageCount === 2) {
+    if (step === 1) {
       response = QUALIFYING_MESSAGE;
+      sessionManager.setStep(jid, 2);
       console.log(`📌 Pregunta de calificación fija para ${jid}`);
-    } else if (userMessageCount === 3) {
+    } else if (step === 2) {
       response = CLOSE_MESSAGE;
+      sessionManager.setStep(jid, 3);
       console.log(`📌 Cierre fijo para ${jid}`);
     } else {
       console.log(`🤖 Llamando a OpenAI para ${jid}...`);
@@ -271,7 +297,7 @@ async function processMessage(sock, message, jid, text) {
 
     // Brochure: se adjunta junto con el mensaje de cierre, una sola vez por
     // conversación (sendBrochureIfNeeded revisa el flag antes de mandar).
-    if (userMessageCount >= 3) {
+    if (step >= 2) {
       await sendBrochureIfNeeded(sock, jid);
     }
 

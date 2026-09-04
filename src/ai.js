@@ -53,9 +53,8 @@ export async function getAIResponse(history = [], userMessage) {
 }
 
 /**
- * Clasifica el mensaje del cliente en uno de tres tipos, en una sola llamada
- * a la IA (antes eran dos: una para intención de llamada y esta nueva se
- * agregó aparte — se combinaron para no duplicar latencia/costo):
+ * Clasifica el mensaje del cliente en uno de cuatro tipos, en una sola
+ * llamada a la IA (para no multiplicar latencia/costo):
  *
  * - "llamada": pide que lo llamen, pregunta si puede agendar una cita/llamada,
  *   da su número, pregunta cómo contactar directo, o muestra prisa. Esta es
@@ -64,13 +63,18 @@ export async function getAIResponse(history = [], userMessage) {
  *   que no se le pidió, se queja, pregunta algo totalmente fuera de tema, o
  *   en general no es una respuesta puntual a lo que se le preguntó ni algo
  *   relacionado a agendar. Se pausa el chat y se le avisa a Sam.
- * - "normal": cualquier otra cosa — respuesta directa a la pregunta hecha, o
- *   pregunta puntual sobre el servicio (precio, portafolio, etc).
+ * - "pregunta": el cliente pregunta algo puntual (portafolio/ejemplos,
+ *   precio, funcionalidades, tiempos, etc.) en vez de (o además de) contestar
+ *   lo que se le preguntó. En estos casos la IA responde con las reglas del
+ *   SYSTEM_PROMPT, en vez de mandar el texto fijo del paso del flujo — así no
+ *   se ignora la pregunta real de la persona.
+ * - "normal": una respuesta directa a lo que se le preguntó, o un saludo /
+ *   apertura genérica sin pregunta puntual.
  */
 export async function classifyMessage(userMessage) {
   // Número de teléfono peruano (9 dígitos empezando en 9): señal inequívoca
   // de intención de llamada, no hace falta ni preguntarle a la IA.
-  if (/\b9\d{8}\b/.test(userMessage)) return { callIntent: true, unusual: false };
+  if (/\b9\d{8}\b/.test(userMessage)) return { callIntent: true, unusual: false, isQuestion: false };
 
   const hasKeyword = CALL_SCHEDULED_PHRASES.some((phrase) =>
     userMessage.toLowerCase().includes(phrase.toLowerCase())
@@ -83,25 +87,27 @@ export async function classifyMessage(userMessage) {
         {
           role: 'system',
           content:
-            'Eres un clasificador para mensajes de clientes en una conversación de ventas de páginas web por WhatsApp. Responde SOLO con una palabra: "llamada", "inusual", o "normal".\n' +
+            'Eres un clasificador para mensajes de clientes en una conversación de ventas de páginas web por WhatsApp. Responde SOLO con una palabra: "llamada", "inusual", "pregunta", o "normal".\n' +
             '"llamada": el cliente pide que lo llamen, pregunta si puede agendar/coordinar/programar una cita o llamada, dice que él puede llamar, pregunta cómo contactar directo, da su número de teléfono, o muestra prisa (está ocupado, manejando, etc).\n' +
             '"inusual": el cliente se explaya mucho de más, cuenta algo largo y detallado sobre su negocio o situación sin que se le haya pedido, se queja, pregunta algo totalmente fuera de tema (no relacionado a su web ni al negocio), o en general no es simplemente una respuesta puntual a lo que se le preguntó ni algo relacionado a agendar.\n' +
-            '"normal": cualquier otra cosa — una respuesta directa (corta o algo más larga, mientras sea sobre lo que se le preguntó) a la pregunta hecha, o una pregunta puntual sobre el servicio (precio, portafolio, tiempos, etc).',
+            '"pregunta": el cliente pregunta algo puntual sobre el servicio — portafolio/ejemplos de trabajos, precio, funcionalidades, tiempos de entrega, qué incluye, etc. — en vez de (o además de) simplemente contestar lo que se le preguntó.\n' +
+            '"normal": una respuesta directa a la pregunta hecha (corta o algo más larga, mientras sea sobre lo que se le preguntó), o un saludo/apertura genérica sin pregunta puntual.',
         },
         { role: 'user', content: userMessage },
       ],
       max_tokens: 5,
       temperature: 0,
     });
-    const answer = check.choices[0]?.message?.content?.trim().toLowerCase();
+    const answer = check.choices[0]?.message?.content?.trim().toLowerCase().replace(/["']/g, '');
     return {
-      callIntent: answer === 'llamada' || answer === '"llamada"',
-      unusual: answer === 'inusual' || answer === '"inusual"',
+      callIntent: answer === 'llamada',
+      unusual: answer === 'inusual',
+      isQuestion: answer === 'pregunta',
     };
   } catch {
     // Si falla la IA, al menos nos quedamos con el chequeo de palabras clave
-    // para intención de llamada. Para "inusual" no hay fallback — mejor no
-    // pausar de más si la IA no responde.
-    return { callIntent: hasKeyword, unusual: false };
+    // para intención de llamada. Para "inusual"/"pregunta" no hay fallback —
+    // mejor no pausar ni desviar de más si la IA no responde.
+    return { callIntent: hasKeyword, unusual: false, isQuestion: false };
   }
 }

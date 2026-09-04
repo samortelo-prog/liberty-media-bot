@@ -147,6 +147,16 @@ const processingJids = new Set();
 // el mensaje en curso, en vez de perderse.
 const pendingWhileProcessing = new Map(); // jid → { message, text }
 
+// El delay humano (2+ minutos) deja una ventana larga en la que Sam puede
+// escribirle manualmente al cliente mientras el bot todavía está "pensando"
+// su respuesta. Sin este chequeo, el bot terminaba mandando su mensaje fijo
+// igual, encima de lo que Sam ya había contestado. Se revisa el estado
+// FRESCO (no el que se leyó al principio) justo antes de cada envío.
+function shouldAbortSend(jid) {
+  const current = sessionManager.getOrCreate(jid);
+  return current.excluded || current.mode !== 'bot';
+}
+
 // ── Procesa el mensaje final acumulado ──
 async function processMessage(sock, message, jid, text) {
   if (processingJids.has(jid)) {
@@ -205,7 +215,8 @@ async function processMessage(sock, message, jid, text) {
     }
 
     if (callInUserMsg) {
-      await sendCallIntentReply(sock, jid);
+      const sent = await sendCallIntentReply(sock, jid);
+      if (!sent) return; // Sam ya intervino manualmente mientras se esperaba
       sessionManager.addMessage(jid, 'assistant', CALL_INTENT_MESSAGE);
       sessionManager.setStarted(jid);
       await notifyOwnerCallScheduled(sock, jid, message.pushName, text);
@@ -244,6 +255,10 @@ async function processMessage(sock, message, jid, text) {
       const response = await getAIResponse(session.history, text);
       sessionManager.addMessage(jid, 'assistant', response);
       await humanDelay(sock, jid, response);
+      if (shouldAbortSend(jid)) {
+        console.log(`🚫 Envío abortado para ${jid} — interviniste manualmente mientras el bot esperaba`);
+        return;
+      }
       await sock.sendMessage(jid, { text: response });
       console.log(`📤 Respuesta enviada a ${jid}`);
 
@@ -276,6 +291,10 @@ async function processMessage(sock, message, jid, text) {
       sessionManager.setStep(jid, 1);
 
       await humanDelay(sock, jid, GREETING_MESSAGE);
+      if (shouldAbortSend(jid)) {
+        console.log(`🚫 Saludo abortado para ${jid} — interviniste manualmente mientras el bot esperaba`);
+        return;
+      }
       await sock.sendMessage(jid, { text: GREETING_MESSAGE });
       console.log(`📤 Saludo enviado a ${jid}`);
 
@@ -303,6 +322,10 @@ async function processMessage(sock, message, jid, text) {
     sessionManager.addMessage(jid, 'assistant', response);
 
     await humanDelay(sock, jid, response);
+    if (shouldAbortSend(jid)) {
+      console.log(`🚫 Envío abortado para ${jid} — interviniste manualmente mientras el bot esperaba`);
+      return;
+    }
     await sock.sendMessage(jid, { text: response });
     console.log(`📤 Respuesta enviada a ${jid}`);
 
@@ -361,12 +384,18 @@ async function sendBrochureIfNeeded(sock, jid) {
 }
 
 // ── Respuesta fija (texto exacto, nunca generado por IA) + PDF cuando el
-// lead muestra intención de llamada ──
+// lead muestra intención de llamada. Devuelve false si se abortó porque Sam
+// ya había intervenido manualmente mientras se esperaba el delay. ──
 async function sendCallIntentReply(sock, jid) {
   await humanDelay(sock, jid, CALL_INTENT_MESSAGE);
+  if (shouldAbortSend(jid)) {
+    console.log(`🚫 Mensaje de intención de llamada abortado para ${jid} — interviniste manualmente mientras el bot esperaba`);
+    return false;
+  }
   await sock.sendMessage(jid, { text: CALL_INTENT_MESSAGE });
   console.log(`📤 Mensaje de intención de llamada enviado a ${jid}`);
   await sendBrochureIfNeeded(sock, jid);
+  return true;
 }
 
 // ── Notificar al dueño que hay que confirmar una cita/llamada ──
